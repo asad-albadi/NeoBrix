@@ -44,6 +44,21 @@ The design language is deliberate:
 Two palettes ship: **Neobrix Light** (`dawn`) and **Neobrix Dark** (`dusk`).
 Neither is a naive inversion of the other — see [Theming](#theme-architecture).
 
+### Built with AI assistance
+
+Neobrix was implemented by an AI coding agent (Claude Code) working from written
+briefs, with the direction, design decisions, review and testing done by the
+author. **All documentation in this repository is written by the AI agent** —
+this README, everything under `docs/`, the inline comments and the commit
+messages.
+
+Worth knowing before you deploy it: the configuration runs daily on the author's
+machine and the behaviour described here was verified there, but the code has not
+been reviewed by a second person. Read it before pointing it at your own setup —
+`install/deploy.sh` in particular symlinks over existing configuration, and while
+it backs up everything it replaces to `~/.config-backup/`, you should know that
+going in.
+
 ### Requirements
 
 CachyOS or Arch, Hyprland ≥ 0.55 (for the Lua configuration format), Quickshell,
