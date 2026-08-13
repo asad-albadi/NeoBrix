@@ -167,7 +167,9 @@ mode re-colours the whole shell live; the choice is persisted under
 badges stay legible when the neutral accents invert between palettes.
 
 The mode is not shell-only: changing it runs **`neobrix-theme`**, which renders the
-same palette into the terminals, GTK 3/4, qt5ct/qt6ct and kdeglobals. Alacritty
+same palette into the terminals, GTK 3/4, qt5ct/qt6ct, kdeglobals, hyprlock and
+the editor (Cursor / VS Code, as a real theme extension so both variants stay
+selectable from the editor's own picker). Alacritty
 imports the generated file and watches it, so open terminals recolour live; kitty
 reloads on SIGUSR1; GTK follows the gsettings `color-scheme`; Qt/KDE applications
 read their palette at startup and so follow on next launch. Those files are

@@ -32,7 +32,8 @@ when the machine actually has a backlight.
 | `Super` `Return` | Terminal (alacritty) |
 | `Super` `E` | File manager (dolphin) |
 | `Super` `W` | Browser (Zen) |
-| `Super` `T` | Text editor |
+| `Super` `T` | Text editor (quick edits) |
+| `Super` `I` | Cursor — the IDE. Only bound when `cursor` is installed. |
 | `Super` `Shift` `C` | Calculator |
 | `XF86Calculator` | Calculator |
 | `Ctrl` `Shift` `Escape` | btop in a terminal |

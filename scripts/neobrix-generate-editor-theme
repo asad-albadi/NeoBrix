@@ -1,0 +1,360 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Builds the Neobrix colour theme for Cursor (and VS Code, same format) and
+#  points the editor at the variant matching the current palette.
+#
+#      neobrix-generate-editor-theme [dawn|dusk]
+#
+#  Installs a real theme extension rather than writing
+#  workbench.colorCustomizations, so both variants stay selectable from the
+#  editor's own theme picker and the user's settings are not monopolised.
+#
+#  Colours come from lib/palette.sh — the same values the shell, terminals, GTK,
+#  Qt, KDE and hyprlock use.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+# shellcheck source=lib/palette.sh
+source "$HERE/lib/palette.sh"
+
+MODE="${1:-dawn}"
+[[ "$MODE" == "dawn" || "$MODE" == "dusk" ]] || { echo "usage: neobrix-generate-editor-theme [dawn|dusk]" >&2; exit 2; }
+
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+# Cursor keeps extensions in ~/.cursor and user settings under ~/.config/Cursor.
+# VS Code is supported too when present, since the theme format is identical.
+declare -a EXT_DIRS=() SETTINGS=()
+[[ -d "$HOME/.cursor" || -x /usr/bin/cursor || -d /usr/share/cursor ]] && {
+    EXT_DIRS+=("$HOME/.cursor/extensions"); SETTINGS+=("$CFG/Cursor/User/settings.json"); }
+[[ -d "$HOME/.vscode" ]] && {
+    EXT_DIRS+=("$HOME/.vscode/extensions"); SETTINGS+=("$CFG/Code/User/settings.json"); }
+
+(( ${#EXT_DIRS[@]} )) || { echo "neobrix-generate-editor-theme: no Cursor or VS Code install found" >&2; exit 0; }
+
+# Emit one theme file per palette. Exported so the python block can read them.
+emit_theme() {
+    local mode="$1" out="$2"
+    neobrix_palette "$mode"
+    export mode out
+    export DESKTOP BG SURFACE_ALT BG_DEEP FG FG_DIM OUTLINE
+    export PRIMARY SECONDARY TERTIARY PINK SUCCESS WARNING ERROR INFO ON_ACCENT
+    export N_BLACK N_RED N_GREEN N_YELLOW N_BLUE N_MAGENTA N_CYAN N_WHITE
+    export B_BLACK B_RED B_GREEN B_YELLOW B_BLUE B_MAGENTA B_CYAN B_WHITE
+
+    python3 - <<'PY'
+import json, os, pathlib
+
+e = os.environ
+def c(name, alpha=None):
+    v = "#" + e[name]
+    return v + alpha if alpha else v
+
+mode = e["mode"]
+dark = mode == "dusk"
+
+surface   = c("BG")            # editor / card interior
+panel     = c("SURFACE_ALT")   # side panels
+deep      = c("BG_DEEP")       # wells, inactive
+fg        = c("FG")
+dim       = c("FG_DIM")
+line      = c("OUTLINE")       # every border
+accent    = c("PRIMARY")
+onAccent  = c("ON_ACCENT")
+
+colors = {
+    # Borders are the point of the style, so they are set explicitly everywhere
+    # rather than left to the editor's defaults.
+    "contrastBorder": line,
+    "focusBorder": accent,
+    "foreground": fg,
+    "descriptionForeground": dim,
+    "errorForeground": c("ERROR"),
+    "widget.border": line,
+    "widget.shadow": c("OUTLINE", "55"),
+    "sash.hoverBorder": accent,
+
+    "editor.background": surface,
+    "editor.foreground": fg,
+    "editorLineNumber.foreground": dim,
+    "editorLineNumber.activeForeground": accent,
+    "editorCursor.foreground": accent,
+    "editor.selectionBackground": c("PRIMARY", "55"),
+    "editor.inactiveSelectionBackground": c("PRIMARY", "2b"),
+    "editor.lineHighlightBackground": c("BG_DEEP", "66"),
+    "editor.findMatchBackground": c("WARNING", "88"),
+    "editor.findMatchHighlightBackground": c("WARNING", "44"),
+    "editorIndentGuide.background1": c("BG_DEEP"),
+    "editorIndentGuide.activeBackground1": dim,
+    "editorWhitespace.foreground": deep,
+    "editorRuler.foreground": deep,
+    "editorBracketMatch.background": c("SECONDARY", "44"),
+    "editorBracketMatch.border": line,
+
+    "editorGutter.addedBackground": c("SUCCESS"),
+    "editorGutter.modifiedBackground": c("INFO"),
+    "editorGutter.deletedBackground": c("ERROR"),
+
+    "editorError.foreground": c("ERROR"),
+    "editorWarning.foreground": c("WARNING"),
+    "editorInfo.foreground": c("INFO"),
+
+    "editorWidget.background": panel,
+    "editorWidget.border": line,
+    "editorSuggestWidget.background": panel,
+    "editorSuggestWidget.border": line,
+    "editorSuggestWidget.selectedBackground": accent,
+    "editorSuggestWidget.selectedForeground": onAccent,
+    "editorHoverWidget.background": panel,
+    "editorHoverWidget.border": line,
+
+    "editorGroup.border": line,
+    "editorGroupHeader.tabsBackground": panel,
+    "editorGroupHeader.tabsBorder": line,
+    "tab.activeBackground": surface,
+    "tab.activeForeground": fg,
+    "tab.inactiveBackground": panel,
+    "tab.inactiveForeground": dim,
+    "tab.border": line,
+    "tab.activeBorderTop": accent,
+    "tab.hoverBackground": deep,
+
+    "activityBar.background": deep,
+    "activityBar.foreground": fg,
+    "activityBar.inactiveForeground": dim,
+    "activityBar.border": line,
+    "activityBarBadge.background": c("TERTIARY"),
+    "activityBarBadge.foreground": onAccent,
+
+    "sideBar.background": panel,
+    "sideBar.foreground": fg,
+    "sideBar.border": line,
+    "sideBarTitle.foreground": dim,
+    "sideBarSectionHeader.background": deep,
+    "sideBarSectionHeader.foreground": fg,
+    "sideBarSectionHeader.border": line,
+
+    "list.activeSelectionBackground": accent,
+    "list.activeSelectionForeground": onAccent,
+    "list.inactiveSelectionBackground": deep,
+    "list.hoverBackground": deep,
+    "list.focusOutline": line,
+    "list.errorForeground": c("ERROR"),
+    "list.warningForeground": c("WARNING"),
+    "tree.indentGuidesStroke": dim,
+
+    # The status bar is a deliberate accent slab, like a bar island.
+    "statusBar.background": accent,
+    "statusBar.foreground": onAccent,
+    "statusBar.border": line,
+    "statusBar.noFolderBackground": c("TERTIARY"),
+    "statusBar.debuggingBackground": c("WARNING"),
+    "statusBarItem.hoverBackground": c("OUTLINE", "22"),
+    "statusBarItem.remoteBackground": c("SECONDARY"),
+    "statusBarItem.remoteForeground": onAccent,
+
+    "titleBar.activeBackground": deep,
+    "titleBar.activeForeground": fg,
+    "titleBar.inactiveBackground": panel,
+    "titleBar.inactiveForeground": dim,
+    "titleBar.border": line,
+
+    "panel.background": panel,
+    "panel.border": line,
+    "panelTitle.activeForeground": fg,
+    "panelTitle.activeBorder": accent,
+    "panelTitle.inactiveForeground": dim,
+
+    "button.background": accent,
+    "button.foreground": onAccent,
+    "button.border": line,
+    "button.hoverBackground": c("PINK"),
+    "button.secondaryBackground": deep,
+    "button.secondaryForeground": fg,
+
+    "badge.background": c("TERTIARY"),
+    "badge.foreground": onAccent,
+    "progressBar.background": accent,
+
+    "input.background": surface,
+    "input.foreground": fg,
+    "input.border": line,
+    "input.placeholderForeground": dim,
+    "inputOption.activeBorder": accent,
+    "inputValidation.errorBackground": c("ERROR"),
+    "inputValidation.errorBorder": line,
+    "dropdown.background": surface,
+    "dropdown.foreground": fg,
+    "dropdown.border": line,
+    "checkbox.background": surface,
+    "checkbox.border": line,
+
+    "scrollbar.shadow": c("OUTLINE", "33"),
+    "scrollbarSlider.background": c("FG_DIM", "55"),
+    "scrollbarSlider.hoverBackground": c("FG_DIM", "88"),
+    "scrollbarSlider.activeBackground": accent,
+    "minimap.background": panel,
+    "minimapSlider.background": c("FG_DIM", "33"),
+
+    "quickInput.background": panel,
+    "quickInputList.focusBackground": accent,
+    "quickInputList.focusForeground": onAccent,
+    "menu.background": panel,
+    "menu.foreground": fg,
+    "menu.border": line,
+    "menu.selectionBackground": accent,
+    "menu.selectionForeground": onAccent,
+    "menubar.selectionBackground": deep,
+
+    "notifications.background": panel,
+    "notifications.border": line,
+    "notificationCenterHeader.background": deep,
+    "notificationLink.foreground": c("INFO"),
+
+    "peekView.border": accent,
+    "peekViewEditor.background": deep,
+    "peekViewResult.background": panel,
+
+    "diffEditor.insertedTextBackground": c("SUCCESS", "33"),
+    "diffEditor.removedTextBackground": c("ERROR", "33"),
+
+    "gitDecoration.modifiedResourceForeground": c("INFO"),
+    "gitDecoration.addedResourceForeground": c("SUCCESS"),
+    "gitDecoration.deletedResourceForeground": c("ERROR"),
+    "gitDecoration.untrackedResourceForeground": c("SECONDARY"),
+    "gitDecoration.ignoredResourceForeground": dim,
+
+    "terminal.background": surface,
+    "terminal.foreground": fg,
+    "terminal.border": line,
+    "terminalCursor.foreground": accent,
+    "terminal.ansiBlack": c("N_BLACK"),
+    "terminal.ansiRed": c("N_RED"),
+    "terminal.ansiGreen": c("N_GREEN"),
+    "terminal.ansiYellow": c("N_YELLOW"),
+    "terminal.ansiBlue": c("N_BLUE"),
+    "terminal.ansiMagenta": c("N_MAGENTA"),
+    "terminal.ansiCyan": c("N_CYAN"),
+    "terminal.ansiWhite": c("N_WHITE"),
+    "terminal.ansiBrightBlack": c("B_BLACK"),
+    "terminal.ansiBrightRed": c("B_RED"),
+    "terminal.ansiBrightGreen": c("B_GREEN"),
+    "terminal.ansiBrightYellow": c("B_YELLOW"),
+    "terminal.ansiBrightBlue": c("B_BLUE"),
+    "terminal.ansiBrightMagenta": c("B_MAGENTA"),
+    "terminal.ansiBrightCyan": c("B_CYAN"),
+    "terminal.ansiBrightWhite": c("B_WHITE"),
+}
+
+def tok(scopes, fg=None, style=None):
+    s = {"scope": scopes, "settings": {}}
+    if fg:    s["settings"]["foreground"] = fg
+    if style: s["settings"]["fontStyle"] = style
+    return s
+
+token_colors = [
+    tok(["comment", "punctuation.definition.comment"], dim, "italic"),
+    tok(["string", "string.quoted", "constant.other.symbol"], c("SUCCESS")),
+    tok(["string.regexp"], c("SECONDARY")),
+    tok(["constant.numeric", "constant.language", "constant.character"], c("WARNING")),
+    tok(["keyword", "keyword.control", "storage", "storage.type", "storage.modifier"],
+        c("TERTIARY"), "bold"),
+    tok(["keyword.operator"], dim),
+    tok(["entity.name.function", "support.function", "meta.function-call"], c("INFO")),
+    tok(["entity.name.type", "entity.name.class", "support.type", "support.class"],
+        c("PINK")),
+    tok(["variable", "meta.definition.variable.name", "support.variable"], fg),
+    tok(["variable.parameter"], c("WARNING")),
+    tok(["variable.other.property", "meta.object-literal.key"], c("INFO")),
+    tok(["entity.name.tag"], c("TERTIARY")),
+    tok(["entity.other.attribute-name"], c("SECONDARY"), "italic"),
+    tok(["punctuation", "meta.brace"], dim),
+    tok(["markup.heading"], accent, "bold"),
+    tok(["markup.bold"], fg, "bold"),
+    tok(["markup.italic"], fg, "italic"),
+    tok(["markup.inserted"], c("SUCCESS")),
+    tok(["markup.deleted"], c("ERROR")),
+    tok(["invalid", "invalid.illegal"], c("ERROR")),
+]
+
+theme = {
+    "name": f"Neobrix {mode.capitalize()}",
+    "type": "dark" if dark else "light",
+    "semanticHighlighting": True,
+    "colors": colors,
+    "tokenColors": token_colors,
+}
+
+out = pathlib.Path(e["out"])
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(json.dumps(theme, indent=2) + "\n")
+PY
+}
+
+for i in "${!EXT_DIRS[@]}"; do
+    ext="${EXT_DIRS[i]}/neobrix-theme"
+    mkdir -p "$ext/themes"
+
+    cat > "$ext/package.json" <<'EOF'
+{
+  "name": "neobrix-theme",
+  "displayName": "Neobrix",
+  "description": "Neo-brutalist colour theme matching the Neobrix desktop.",
+  "version": "1.0.0",
+  "publisher": "neobrix",
+  "engines": { "vscode": "^1.70.0" },
+  "categories": ["Themes"],
+  "contributes": {
+    "themes": [
+      { "label": "Neobrix Dawn", "uiTheme": "vs",   "path": "./themes/neobrix-dawn.json" },
+      { "label": "Neobrix Dusk", "uiTheme": "vs-dark", "path": "./themes/neobrix-dusk.json" }
+    ]
+  }
+}
+EOF
+
+    emit_theme dawn "$ext/themes/neobrix-dawn.json"
+    emit_theme dusk "$ext/themes/neobrix-dusk.json"
+    printf 'installed theme extension: %s\n' "$ext"
+
+    # ── point the editor at the matching variant ──────────────────────────────
+    # Merged into the existing settings rather than overwritten: this file is the
+    # user's, and it is JSON-with-comments, so a naive rewrite would lose theirs.
+    s="${SETTINGS[i]}"
+    mkdir -p "$(dirname "$s")"
+    MODE="$MODE" SETTINGS_FILE="$s" python3 - <<'PY'
+import json, os, pathlib, re
+
+path = pathlib.Path(os.environ["SETTINGS_FILE"])
+mode = os.environ["MODE"]
+
+data = {}
+if path.exists() and path.stat().st_size:
+    raw = path.read_text()
+    # VS Code allows // comments and trailing commas in settings.json.
+    stripped = re.sub(r'^\s*//.*$', '', raw, flags=re.M)
+    stripped = re.sub(r',(\s*[}\]])', r'\1', stripped)
+    try:
+        data = json.loads(stripped) or {}
+    except json.JSONDecodeError:
+        # Never destroy a file we cannot parse.
+        backup = path.with_suffix(".json.neobrix-bak")
+        backup.write_text(raw)
+        print(f"  could not parse existing settings; backed up to {backup}")
+        data = {}
+
+data["workbench.colorTheme"] = f"Neobrix {mode.capitalize()}"
+data.setdefault("editor.fontFamily", "'JetBrainsMono Nerd Font Mono', monospace")
+data.setdefault("terminal.integrated.fontFamily", "'JetBrainsMono Nerd Font Mono'")
+data.setdefault("editor.fontSize", 13)
+data.setdefault("editor.fontLigatures", False)
+# The theme leans on borders; without this the editor hides most of them.
+data.setdefault("workbench.editor.showTabs", "multiple")
+data.setdefault("window.titleBarStyle", "custom")
+
+path.write_text(json.dumps(data, indent=2) + "\n")
+print(f"  {path} -> Neobrix {mode.capitalize()}")
+PY
+done

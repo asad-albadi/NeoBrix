@@ -59,6 +59,7 @@ APPS=(
     alacritty
     dolphin
     zen-browser-bin
+    cursor-bin
 )
 
 ALL=("${CORE[@]}" "${SERVICES[@]}" "${UTILS[@]}" "${LOOK[@]}" "${APPS[@]}")

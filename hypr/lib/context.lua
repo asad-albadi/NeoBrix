@@ -15,6 +15,9 @@ ctx.apps = {
     file_manager = "dolphin",
     browser      = "zen-browser",
     editor       = "gnome-text-editor --new-window",
+    -- The IDE is kept separate from `editor`: SUPER+T should stay a fast
+    -- notepad, not spawn an Electron IDE for a one-line change.
+    ide          = "cursor",
     calculator   = "gnome-calculator",
     monitor      = "alacritty -e btop",
 }
@@ -48,6 +51,9 @@ ctx.caps = {
     touchpad        = helpers.has_touchpad(),
     battery         = helpers.has_battery(),
     backlight       = helpers.has_backlight(),
+    -- Probed rather than assumed: the IDE is optional, and a keybinding that
+    -- launches a missing binary is worse than no keybinding.
+    ide             = helpers.has_exec("cursor"),
 }
 
 -- Number of persistent workspaces; also how many workspace binds are generated.

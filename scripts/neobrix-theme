@@ -383,6 +383,13 @@ write "$CFG/hypr/hyprlock-palette.conf" <<EOF
 \$scrim     = $LOCK_SCRIM
 EOF
 
+# ── editor (Cursor / VS Code) ───────────────────────────────────────────────
+# Installs the theme extension if missing and switches which variant is active.
+# Skipped silently when neither editor is installed.
+if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-editor-theme" ]]; then
+    "$(dirname "$(readlink -f "$0")")/neobrix-generate-editor-theme" "$MODE" >/dev/null 2>&1 || true
+fi
+
 # ── nudge what can reload in place ──────────────────────────────────────────
 # alacritty watches its config (live_config_reload); kitty reloads on SIGUSR1.
 pkill -SIGUSR1 -x kitty 2>/dev/null || true
@@ -390,4 +397,4 @@ pkill -SIGUSR1 -x kitty 2>/dev/null || true
 # hyprlock reads its config when it launches, so it needs no signal.
 
 printf '%s\n' "$MODE" > "$STATE_DIR/theme"
-printf 'applied %s to terminals, GTK, Qt, KDE and hyprlock\n' "$MODE"
+printf 'applied %s to terminals, GTK, Qt, KDE, hyprlock and the editor\n' "$MODE"

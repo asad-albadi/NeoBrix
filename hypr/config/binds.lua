@@ -37,6 +37,9 @@ return function(ctx)
     hl.bind(mod .. " + E",              run(apps.file_manager))
     hl.bind(mod .. " + W",              run(apps.browser))
     hl.bind(mod .. " + T",              run(apps.editor))
+    if ctx.caps.ide then
+        hl.bind(mod .. " + I",          run(apps.ide))
+    end
     hl.bind(mod .. " + SHIFT + C",      run(apps.calculator))
     hl.bind("XF86Calculator",           run(apps.calculator))
     hl.bind("CONTROL + SHIFT + ESCAPE", run(apps.monitor))
