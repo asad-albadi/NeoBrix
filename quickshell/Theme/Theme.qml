@@ -77,12 +77,17 @@ Singleton {
 
     readonly property QtObject dusk: QtObject {
         readonly property color background:   "#14100E"
-        readonly property color surface:      "#241D18"
-        readonly property color surfaceAlt:   "#1C1613"
+        readonly property color surface:      "#2E241C"  // card interior
+        readonly property color surfaceAlt:   "#191310"  // panel body / bar fill
         readonly property color surfaceDeep:  "#100D0B"
         readonly property color foreground:   "#F6EDE2"
         readonly property color foregroundDim:"#9C8A79"
-        readonly property color outline:      "#F0E2D2"  // cream outline on dark
+        // Near-black, not cream. A light outline on a dark ground reads as a glow
+        // around every card rather than as structure, and the panels looked busy.
+        // Because the border no longer separates card from panel, the two surfaces
+        // carry that job instead: `surface` is lifted and `surfaceAlt` dropped so
+        // the fill gap is wide enough to read on its own.
+        readonly property color outline:      "#0D0A08"
         readonly property color shadow:       "#000000"
         readonly property color primary:      "#F0A377"
         readonly property color secondary:    "#9FD08F"

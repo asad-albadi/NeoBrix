@@ -8,6 +8,12 @@
 
 set -euo pipefail
 
+HERE="$(dirname "$(readlink -f "$0")")"
+# The wallpapers are drawn from the same palette as the shell, so a palette
+# change reaches them too — the dusk set had cream outlines baked in until this.
+# shellcheck source=lib/palette.sh
+source "$HERE/lib/palette.sh"
+
 OUT="${1:-$HOME/.local/share/neobrix/wallpapers}"
 GEOM="${2:-2560x1440}"
 W="${GEOM%x*}"
@@ -95,8 +101,12 @@ gen_arch() {
     } > "$tmp/$name.svg"
 }
 
-gen_arch dawn "#F0E2D2" "#171210" "#FCF6EE" "#E3D3C1" "#F6A97E" "#AFDCA0" "#C4AEF2" "#9FC4E8"
-gen_arch dusk "#14100E" "#F0E2D2" "#241D18" "#1C1613" "#F0A377" "#9FD08F" "#B9A2EC" "#93B8DE"
+for mode in dawn dusk; do
+    neobrix_palette "$mode"
+    #        name   ground        ink           neutral   neutral2       accents…
+    gen_arch "$mode" "#$BG_ALT" "#$OUTLINE" "#$BG" "#$BG_DEEP" \
+             "#$PRIMARY" "#$SECONDARY" "#$TERTIARY" "#$INFO"
+done
 
 # ── blocks: an explicitly neo-brutalist composition — offset outlined slabs ──
 gen_blocks() {
@@ -135,8 +145,11 @@ gen_blocks() {
     } > "$tmp/$name.svg"
 }
 
-gen_blocks blocks-dawn "#F0E2D2" "#171210" "#F6A97E" "#AFDCA0" "#C4AEF2" "#F5A8BC" "#9FC4E8" "#EBC963"
-gen_blocks blocks-dusk "#14100E" "#F0E2D2" "#F0A377" "#9FD08F" "#B9A2EC" "#EE9BB0" "#93B8DE" "#E0BE58"
+for mode in dawn dusk; do
+    neobrix_palette "$mode"
+    gen_blocks "blocks-$mode" "#$BG_ALT" "#$OUTLINE" \
+               "#$PRIMARY" "#$SECONDARY" "#$TERTIARY" "#$PINK" "#$INFO" "#$WARNING"
+done
 
 for f in dawn dusk blocks-dawn blocks-dusk; do
     magick -background none "$tmp/$f.svg" -resize "${W}x${H}!" \

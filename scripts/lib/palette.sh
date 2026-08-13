@@ -47,13 +47,13 @@ neobrix_palette() {
         ;;
     dusk)
         DESKTOP=14100e
-        BG=241d18
-        SURFACE_ALT=1c1613
-        BG_ALT=1c1613
+        BG=2e241c
+        SURFACE_ALT=191310
+        BG_ALT=191310
         BG_DEEP=100d0b
         FG=f6ede2
         FG_DIM=9c8a79
-        OUTLINE=f0e2d2      # cream outline on dark — still the strongest line
+        OUTLINE=0d0a08      # near-black; see Theme.qml for why not cream
         PRIMARY=f0a377
         SECONDARY=9fd08f
         TERTIARY=b9a2ec
