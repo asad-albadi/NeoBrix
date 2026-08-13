@@ -391,10 +391,13 @@ if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-editor-theme" ]]; th
 fi
 
 # ── Zen Browser ─────────────────────────────────────────────────────────────
-# Writes prefs + userChrome/userContent into the profile. Needs a Zen restart to
-# take effect, so it is not part of the "reload in place" set below.
+# Palette-independent: the generated stylesheet carries both schemes gated on
+# prefers-color-scheme, and Firefox follows the desktop scheme via the XDG portal
+# (set by the gsettings call above). So this only needs running when the palette
+# definition itself changes, not on every switch — and a running browser follows
+# a switch live.
 if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" ]]; then
-    "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" "$MODE" >/dev/null 2>&1 || true
+    "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" >/dev/null 2>&1 || true
 fi
 
 # ── Dark Reader ─────────────────────────────────────────────────────────────
