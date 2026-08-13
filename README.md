@@ -196,6 +196,56 @@ desaturates the accents just enough to sit on a dark ground without glowing.
 between the two palettes, so a fixed "text on accent" colour would vanish in one
 of them.
 
+### Login screen
+
+The greeter is [ReGreet](https://github.com/rharish101/ReGreet) — GTK4, hosted in
+`cage`, driven by greetd — themed from the palette by
+`neobrix-generate-greeter`. It replaces the CachyOS default
+(`noctalia-greeter-session`), which was the last piece of the boot chain not
+following Neobrix.
+
+```
+greetd → cage → regreet   (/etc/greetd/config.toml)
+                 ├── regreet.toml   config + wallpaper
+                 └── regreet.css    the Neobrix stylesheet
+```
+
+Run it with sudo, since it writes to `/etc/greetd`:
+
+```bash
+sudo neobrix-generate-greeter [dawn|dusk]
+```
+
+With no argument it reads the persisted palette. This is the one piece of theming
+**not** regenerated on a palette switch — `/etc` is not writable by the user-level
+`neobrix-theme`, so the mode is baked in and changing it means re-running the
+script.
+
+The wallpaper is copied to `/usr/share/backgrounds/neobrix/` because the greeter
+runs as the `greeter` user and cannot read `$HOME`.
+
+ReGreet builds its UI in code rather than from a template, so there are no custom
+CSS classes to target — the stylesheet styles generic GTK4 selectors (`window`,
+`frame`, `entry`, `button`). The card uses a heavier outline and deeper shadow
+than the in-shell equivalent: in the shell a card sits on a panel and fill
+contrast carries the edge, but here it floats on a wallpaper where a near-black
+2px border on a dark card disappears.
+
+**Iterate safely with `--demo`.** ReGreet renders its real UI without greetd, so
+the greeter can be developed without ever risking the ability to log in:
+
+```bash
+regreet --demo -c /etc/greetd/regreet.toml -s /etc/greetd/regreet.css
+```
+
+If the greeter ever fails to come up, roll back from a TTY or the hypervisor
+console — the previous config is kept beside it:
+
+```bash
+sudo cp /etc/greetd/config.toml.pre-regreet /etc/greetd/config.toml
+sudo systemctl restart greetd
+```
+
 ### Zen Browser
 
 `neobrix-generate-zen-theme` writes into the Zen profile — not a symlink from the
@@ -496,6 +546,7 @@ neobrix/
 │   └── Wallpaper/
 ├── terminal/              alacritty, kitty, fastfetch
 ├── theming/darkreader/    importable Dark Reader config (generated)
+├── greeter/               login screen: regreet css/toml + greetd config
 ├── scripts/               neobrix, -theme, -wallpaper, -screenshot,
 │                          -generate-{wallpapers,identity,fastfetch,
 │                                     editor-theme,zen-theme,darkreader}

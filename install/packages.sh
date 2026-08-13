@@ -60,6 +60,8 @@ APPS=(
     dolphin
     zen-browser-bin
     cursor-bin
+    greetd-regreet
+    cage
 )
 
 ALL=("${CORE[@]}" "${SERVICES[@]}" "${UTILS[@]}" "${LOOK[@]}" "${APPS[@]}")

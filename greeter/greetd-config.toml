@@ -1,0 +1,12 @@
+[terminal]
+vt = 1
+
+# Neobrix login screen: ReGreet (GTK4, themed from the Neobrix palette by
+# scripts/neobrix-generate-greeter) hosted in cage, a minimal kiosk compositor.
+#
+# Rollback if this ever fails to come up — from a TTY or the Proxmox console:
+#   sudo cp /etc/greetd/config.toml.pre-regreet /etc/greetd/config.toml
+#   sudo systemctl restart greetd
+[default_session]
+command = "cage -s -- regreet"
+user = "greeter"
