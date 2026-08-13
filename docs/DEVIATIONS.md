@@ -108,10 +108,14 @@ Two cautions if you repeat this on another CachyOS install:
   meta-package was the thing that pulled them in. Mark everything you actually use as
   explicit first (`pacman -D --asexplicit $(install/packages.sh --list)`), then check
   `pacman -Rs --print` before committing to it.
-* **`noctalia-greeter` is a different package and is kept.** `/etc/greetd/config.toml`
-  runs `/usr/bin/noctalia-greeter-session`, so removing it leaves greetd pointing at a
-  missing binary and no way to log in. Swap the greeter in `/etc/greetd/config.toml`
-  first if you want it gone.
+* **`noctalia-greeter` was a different package and had to be kept until there was a
+  replacement.** `/etc/greetd/config.toml` ran `/usr/bin/noctalia-greeter-session`, and
+  removing it would have left greetd pointing at a missing binary and no way to log in.
+  Neobrix now ships its own greeter (greetd + ReGreet, see the README), so noctalia-greeter
+  has been uninstalled. The lesson stands: swap the greeter in `/etc/greetd/config.toml`
+  and confirm the new one works *before* removing the old one — and repoint any fallback
+  config too, or "recovery" restores a broken greeter. The fallback here is now `agreety`,
+  which ships inside the greetd package itself and so cannot go missing.
 
 **Alacritty config rewritten.** The shipped `alacritty.toml` defined `bindings`
 under `[keyboard]` *and* a `[[keyboard.bindings]]` table array. That is a duplicate

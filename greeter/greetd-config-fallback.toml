@@ -1,0 +1,11 @@
+# Emergency fallback greeter: agreety, the text-mode greeter shipped with greetd.
+#
+# This replaced noctalia-greeter-session, which was uninstalled once the Neobrix
+# greeter was confirmed working. A fallback must point at a binary that actually
+# exists — greetd pointing at a missing command means no way to log in at all.
+[terminal]
+vt = 1
+
+[default_session]
+command = "agreety --cmd /bin/fish"
+user = "greeter"

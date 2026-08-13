@@ -7,9 +7,13 @@ Only needed if the login screen fails to appear after a boot. From a TTY
     sudo cp /etc/greetd/config.toml.pre-regreet /etc/greetd/config.toml
     sudo systemctl restart greetd
 
-That restores CachyOS's noctalia-greeter-session, which is still installed.
+That switches to agreety, greetd's text-mode greeter. It is part of the greetd
+package itself, so it cannot go missing.
 
-To put the Neobrix greeter back afterwards:
+To put the Neobrix greeter back:
 
     sudo cp /etc/greetd/config.toml.neobrix-greeter /etc/greetd/config.toml
     sudo systemctl restart greetd
+
+Note: CachyOS's noctalia-greeter has been uninstalled, so it is no longer an
+option. Reinstall it with `pacman -S noctalia-greeter` if you want it back.

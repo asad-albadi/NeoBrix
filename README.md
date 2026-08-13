@@ -72,6 +72,8 @@ In [`docs/screenshots/`](docs/screenshots). Regenerate with
 
 | | |
 |---|---|
+| ![greeter dawn](docs/screenshots/greeter-dawn.png) | ![greeter dusk](docs/screenshots/greeter-dusk.png) |
+| **Login screen** — greetd + ReGreet, themed from the palette | the same greeter in the `dusk` palette |
 | ![desktop](docs/screenshots/desktop.png) | ![launcher](docs/screenshots/launcher.png) |
 | **Desktop** — bar and generated wallpaper | **Launcher** — fuzzy search over `.desktop` entries |
 | ![control center](docs/screenshots/control-center.png) | ![calendar](docs/screenshots/calendar.png) |
