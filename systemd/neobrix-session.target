@@ -1,0 +1,13 @@
+[Unit]
+Description=Neobrix desktop session
+Documentation=file:///home/asad/Projects/neobrix/README.md
+BindsTo=graphical-session.target
+After=graphical-session.target
+# One handle for the whole desktop:
+#   systemctl --user restart neobrix-session.target
+# The shell renders the wallpaper itself, so there is no wallpaper daemon here.
+Wants=neobrix-shell.service
+Wants=hypridle.service hyprpolkitagent.service cliphist.service
+
+[Install]
+WantedBy=graphical-session.target

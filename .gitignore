@@ -1,0 +1,18 @@
+# generated / machine-local
+*.log
+*.qslog
+.cache/
+local.conf
+*.local
+# never commit secrets
+*.key
+*.pem
+id_rsa*
+id_ed25519*
+*.gpg
+.env
+secrets*
+cookies*
+
+# machine-specific hyprland overrides (Lua era)
+hypr/machine/local.lua

@@ -1,0 +1,15 @@
+-- Machine-specific Hyprland overrides.
+--
+-- Copy to machine/local.lua (untracked) and edit. Applied last, so it wins.
+--
+-- return function(ctx)
+--     hl.monitor({ output = "DP-1", mode = "2560x1440@165", position = "0x0", scale = 1 })
+--     hl.monitor({ output = "eDP-1", mode = "preferred", position = "0x1440", scale = 1.25 })
+--
+--     ctx.apps.browser = "firefox"
+--
+--     -- With a real GPU you may want blur back:
+--     hl.config({ decoration = { blur = { enabled = true, size = 4, passes = 2 } } })
+-- end
+
+return function(_ctx) end

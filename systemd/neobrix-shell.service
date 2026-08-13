@@ -1,0 +1,22 @@
+[Unit]
+Description=Neobrix Quickshell desktop shell
+Documentation=https://quickshell.org
+PartOf=graphical-session.target
+After=graphical-session.target
+# Without a compositor there is nothing to draw on.
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+Type=simple
+# -c selects ~/.config/quickshell/neobrix/shell.qml.
+ExecStart=/usr/bin/qs -c neobrix
+# Quickshell reloads its QML in place on SIGUSR1, which is much cheaper than a
+# restart and keeps notification history.
+ExecReload=/bin/kill -USR1 $MAINPID
+Restart=on-failure
+RestartSec=2
+Slice=session.slice
+TimeoutStopSec=5sec
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,150 @@
+// Hyprland workspaces — driven entirely by Quickshell's Hyprland IPC binding
+// (event socket), never by polling `hyprctl`.
+
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Hyprland
+import qs.Theme
+import qs.Components
+import qs.Services
+
+Item {
+    id: root
+
+    // Show at least this many slots so the bar geometry does not jump around on
+    // a fresh session; Hyprland is configured with 3 persistent workspaces.
+    property int minSlots: 3
+    property var monitor: null
+
+    implicitWidth: row.implicitWidth
+    implicitHeight: Theme.barIslandHeight - Theme.spaceSm
+
+    readonly property var hyprWorkspaces: Hyprland.workspaces ? Hyprland.workspaces.values : []
+
+    // Union of "exists in Hyprland" and "always show" slots, restricted to this
+    // monitor when the bar is per-monitor. Special workspaces (negative ids) are
+    // surfaced separately.
+    readonly property var slots: {
+        const byId = {};
+        for (const ws of root.hyprWorkspaces) {
+            if (ws.id < 0) continue;
+            if (root.monitor && ws.monitor && ws.monitor.name !== root.monitor.name) continue;
+            byId[ws.id] = ws;
+        }
+        const ids = Object.keys(byId).map(Number);
+        const highest = ids.length > 0 ? Math.max.apply(null, ids) : 0;
+        const upTo = Math.max(root.minSlots, highest);
+
+        const out = [];
+        for (let i = 1; i <= upTo; i++)
+            out.push({ id: i, ws: byId[i] || null });
+        return out;
+    }
+
+    readonly property var specialWorkspace: {
+        for (const ws of root.hyprWorkspaces)
+            if (ws.id < 0 && ws.toplevels && ws.toplevels.values.length > 0) return ws;
+        return null;
+    }
+
+    RowLayout {
+        id: row
+        anchors.centerIn: parent
+        spacing: Theme.spaceSm
+
+        Repeater {
+            model: root.slots
+
+            delegate: Item {
+                id: slot
+                required property var modelData
+
+                readonly property var ws: modelData.ws
+                readonly property bool exists: ws !== null
+                readonly property bool focused: exists && ws.focused
+                readonly property bool active: exists && ws.active
+                readonly property bool urgent: exists && ws.urgent
+                readonly property int windows: exists && ws.toplevels ? ws.toplevels.values.length : 0
+                readonly property bool occupied: windows > 0
+
+                // The focused workspace is a wide pill; the rest are square chips.
+                implicitWidth: focused ? 38 : 24
+                implicitHeight: 24
+                Layout.preferredWidth: implicitWidth
+                Layout.preferredHeight: implicitHeight
+
+                Behavior on implicitWidth {
+                    NumberAnimation { duration: Theme.durNormal; easing.type: Theme.easing }
+                }
+
+                BrixCard {
+                    anchors.fill: parent
+                    radius: Theme.radiusXs
+                    shadowOffset: 0
+                    border.width: slot.focused ? Theme.borderThick : Theme.border
+                    color: slot.urgent ? Theme.error
+                         : slot.focused ? Theme.primary
+                         : slot.occupied ? Theme.surfaceDeep
+                         : mouse.containsMouse ? Theme.surface
+                         : "transparent"
+
+                    Behavior on color { ColorAnimation { duration: Theme.durFast } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: slot.modelData.id
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSm
+                        font.weight: slot.focused ? Theme.weightHeavy : Theme.weightBold
+                        color: slot.focused || slot.urgent ? Theme.onAccent
+                             : slot.occupied ? Theme.foreground
+                             : Theme.foregroundDim
+                    }
+                }
+
+                MouseArea {
+                    id: mouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Hypr.focusWorkspace(slot.modelData.id)
+                }
+            }
+        }
+
+        // Scratchpad indicator — only present when the special workspace has
+        // something in it.
+        BrixCard {
+            visible: root.specialWorkspace !== null
+            Layout.preferredWidth: 24
+            Layout.preferredHeight: 24
+            radius: Theme.radiusXs
+            shadowOffset: 0
+            color: Theme.tertiary
+
+            Text {
+                anchors.centerIn: parent
+                text: "󰸉"
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSm
+                color: Theme.onAccent
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: Hypr.toggleSpecialWorkspace()
+            }
+        }
+    }
+
+    // Scroll anywhere on the group to move between workspaces.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.NoButton
+        onWheel: wev => {
+            Hypr.focusWorkspaceRelative(wev.angleDelta.y > 0 ? "m-1" : "m+1");
+        }
+    }
+}

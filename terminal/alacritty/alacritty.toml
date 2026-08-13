@@ -1,0 +1,54 @@
+# Alacritty.
+#
+# Colours are NOT defined here: `neobrix-theme` generates
+# ~/.config/alacritty/neobrix-theme.toml from the active palette and alacritty
+# reloads it in place (live_config_reload), so the terminal follows the shell's
+# light/dark mode instantly.
+#
+# This replaces the CachyOS default, which imported a Noctalia-generated theme
+# and also carried a duplicate `keyboard.bindings` key that made alacritty reject
+# the whole file (a red config-error banner in every new terminal).
+
+[general]
+live_config_reload = true
+import = ["~/.config/alacritty/neobrix-theme.toml"]
+
+[env]
+TERM = "alacritty"
+
+[window]
+padding = { x = 14, y = 12 }
+dynamic_padding = false
+decorations = "None"
+# Brutalism is flat: fully opaque, so bold type stays crisp.
+opacity = 1.0
+dynamic_title = true
+
+[window.class]
+instance = "Alacritty"
+general = "Alacritty"
+
+[scrolling]
+history = 20000
+multiplier = 3
+
+[font]
+size = 11.0
+normal = { family = "JetBrainsMono Nerd Font", style = "Regular" }
+bold = { family = "JetBrainsMono Nerd Font", style = "Bold" }
+italic = { family = "JetBrainsMono Nerd Font", style = "Italic" }
+bold_italic = { family = "JetBrainsMono Nerd Font", style = "Bold Italic" }
+offset = { x = 0, y = 1 }
+
+[cursor]
+style = { shape = "Block", blinking = "On" }
+blink_interval = 600
+thickness = 0.2
+
+[selection]
+save_to_clipboard = false
+
+[[keyboard.bindings]]
+key = "N"
+mods = "Control|Shift"
+action = "SpawnNewInstance"

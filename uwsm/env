@@ -1,0 +1,73 @@
+# Session-wide environment, loaded by UWSM before the compositor starts.
+#
+# This is the right place for it rather than Hyprland's `hl.env()`: systemd user
+# services — the shell, the portals, the polkit agent — are not children of
+# Hyprland and would never see anything exported there.
+#
+# Every variable below has a current consumer on this system. Variables that are
+# commonly copied between dotfiles but have nothing to act on here were removed
+# during the Lua migration; the list of what went and why is at the bottom, so
+# the knowledge is not lost.
+#
+# Hyprland/Aquamarine-specific variables belong in a sibling `env-hyprland`
+# file. None are needed here (no NVIDIA, no multi-GPU), so that file is
+# deliberately absent rather than present and empty.
+
+# ── PATH ─────────────────────────────────────────────────────────────────────
+# The neobrix-* scripts live in ~/.local/bin. systemd user units and Hyprland's
+# exec binds inherit this environment, and neither has that directory by default.
+export PATH="$HOME/.local/bin:$PATH"
+
+# ── Qt ───────────────────────────────────────────────────────────────────────
+export QT_QPA_PLATFORM="wayland;xcb"          # Wayland, falling back to XWayland
+export QT_QPA_PLATFORMTHEME=qt6ct             # qt6ct supplies the Neobrix palette
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1  # Hyprland draws the borders, not Qt
+
+# ── GTK / Electron ───────────────────────────────────────────────────────────
+export GDK_BACKEND="wayland,x11"
+export ELECTRON_OZONE_PLATFORM_HINT=auto      # Electron apps pick Wayland themselves
+
+# ── cursor ───────────────────────────────────────────────────────────────────
+# Both are needed: XCURSOR_* for X11/XWayland and toolkit fallbacks, HYPRCURSOR_*
+# for Hyprland's own cursor stack.
+export XCURSOR_THEME=Adwaita
+export XCURSOR_SIZE=24
+export HYPRCURSOR_THEME=Adwaita
+export HYPRCURSOR_SIZE=24
+
+# ── default applications ─────────────────────────────────────────────────────
+# CachyOS leaves BROWSER=firefox in the login environment on an image that
+# deliberately excludes Firefox; point it at the browser that is installed.
+export BROWSER=zen-browser
+export TERMINAL=alacritty
+export EDITOR=micro
+export VISUAL=micro
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deliberately NOT set, with the reason — re-add if the situation changes:
+#
+#   XDG_CURRENT_DESKTOP / XDG_SESSION_TYPE / XDG_SESSION_DESKTOP
+#       UWSM exports these itself (/usr/lib/uwsm/prepare-env.sh); setting them
+#       here is redundant and risks disagreeing with the session it started.
+#
+#   CLUTTER_BACKEND, ELM_ENGINE, ECORE_EVAS_ENGINE
+#       Clutter and EFL toolkits. Nothing on this system uses either.
+#
+#   SDL_VIDEODRIVER=wayland
+#       SDL ≥ 2.0.22 selects Wayland on its own, and forcing it removes the X11
+#       fallback that some games still need.
+#
+#   MOZ_ENABLE_WAYLAND / MOZ_DBUS_REMOTE
+#       Firefox has defaulted to Wayland since 121 (Zen is built on a newer
+#       base), and MOZ_DBUS_REMOTE only matters for Flatpak builds.
+#
+#   QT_AUTO_SCREEN_SCALE_FACTOR
+#       Qt 6 handles display scaling without it; setting it interferes with
+#       fractional scaling.
+#
+#   NIXOS_OZONE_WL
+#       A NixOS-only variable. This is CachyOS.
+#
+#   _JAVA_AWT_WM_NONREPARENTING=1
+#       The standard fix for grey/blank Swing windows on non-reparenting WMs.
+#       No JRE is installed; add it back if you install one and see the problem.

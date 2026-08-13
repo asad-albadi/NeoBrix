@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Neobrix wallpaper management.
+#
+#   neobrix-wallpaper apply [file]   apply a wallpaper (default: the current one)
+#   neobrix-wallpaper next           cycle forwards through the wallpaper directory
+#   neobrix-wallpaper prev           cycle backwards
+#   neobrix-wallpaper theme <mode>   pick the wallpaper matching dawn|dusk
+#   neobrix-wallpaper generate       (re)generate the built-in brutalist set
+#   neobrix-wallpaper current        print the active wallpaper path
+#   neobrix-wallpaper list           print available wallpapers
+#
+# The shell renders the wallpaper (Quickshell Wallpaper/Wallpaper.qml) and watches
+# the state file below, so writing the path is all that is required — there is no
+# wallpaper daemon and no IPC handshake to go wrong. `qs ipc` is used when the
+# shell is up purely to get an immediate crossfade instead of waiting on inotify.
+
+set -euo pipefail
+
+WALL_DIR="${NEOBRIX_WALLPAPERS:-$HOME/.local/share/neobrix/wallpapers}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/neobrix"
+STATE_FILE="$STATE_DIR/wallpaper"
+
+mkdir -p "$WALL_DIR" "$STATE_DIR"
+
+die() { printf 'neobrix-wallpaper: %s\n' "$*" >&2; exit 1; }
+
+list_walls() {
+    find "$WALL_DIR" -maxdepth 1 -type f \
+        \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) \
+        | sort
+}
+
+current_wall() {
+    if [[ -r "$STATE_FILE" ]]; then
+        local w; w=$(<"$STATE_FILE")
+        [[ -f "$w" ]] && { printf '%s' "$w"; return; }
+    fi
+    list_walls | head -n1
+}
+
+# Nudge the shell so the change is instant; harmless if it isn't running.
+notify_shell() {
+    command -v qs >/dev/null || return 0
+    qs -c neobrix ipc call wallpaper set "$1" >/dev/null 2>&1 || true
+}
+
+# hyprlock cannot use `path = screenshot` on this machine: screencopy needs a DRM
+# dumb buffer and the guest GPU refuses it (DRM_IOCTL_MODE_CREATE_DUMB: Permission
+# denied), which kills hyprlock and leaves the session on Hyprland's
+# crashed-lockscreen screen. Keeping a normalised PNG at a fixed path lets
+# hyprlock.conf reference the current wallpaper without any machine-specific path.
+LOCK_BG="$STATE_DIR/lock-background.png"
+
+update_lock_background() {
+    local wall="$1"
+    if command -v magick >/dev/null; then
+        magick "$wall" -strip "$LOCK_BG" 2>/dev/null || cp -f "$wall" "$LOCK_BG"
+    else
+        cp -f "$wall" "$LOCK_BG"
+    fi
+}
+
+apply() {
+    local wall="${1:-$(current_wall)}"
+    [[ -n "$wall" ]] || die "no wallpaper found in $WALL_DIR (try: neobrix-wallpaper generate)"
+    [[ -f "$wall" ]] || die "not a file: $wall"
+
+    printf '%s\n' "$wall" > "$STATE_FILE"
+    update_lock_background "$wall"
+    notify_shell "$wall"
+    printf 'applied %s\n' "$wall"
+}
+
+cycle() {
+    local dir="$1" walls cur idx=0 i=0
+    mapfile -t walls < <(list_walls)
+    (( ${#walls[@]} )) || die "no wallpapers in $WALL_DIR"
+    cur=$(current_wall)
+    for w in "${walls[@]}"; do
+        [[ "$w" == "$cur" ]] && idx=$i
+        i=$((i + 1))
+    done
+    if [[ "$dir" == "next" ]]; then
+        idx=$(((idx + 1) % ${#walls[@]}))
+    else
+        idx=$(((idx - 1 + ${#walls[@]}) % ${#walls[@]}))
+    fi
+    apply "${walls[$idx]}"
+}
+
+theme() {
+    # Two statements deliberately: bash expands every word of a single `local`
+    # before assigning any of them, so referring to $mode on the same line is
+    # unbound under `set -u`.
+    local mode="${1:-dawn}"
+    local want="$WALL_DIR/neobrix-$mode.png"
+    [[ -f "$want" ]] || die "no wallpaper for theme '$mode' ($want)"
+    apply "$want"
+}
+
+case "${1:-apply}" in
+    apply)    shift || true; apply "${1:-}" ;;
+    next)     cycle next ;;
+    prev|previous) cycle prev ;;
+    theme)    shift; theme "${1:-dawn}" ;;
+    generate) "$(dirname "$(readlink -f "$0")")/neobrix-generate-wallpapers" "$WALL_DIR" ;;
+    # Regenerate only the hyprlock background from whatever is currently selected.
+    # The shell can change the wallpaper itself (Wall.qml writes the state file
+    # directly when the palette flips), which bypasses apply() — so the lock
+    # screen would otherwise keep showing the previous image.
+    lock-background) update_lock_background "$(current_wall)" ;;
+    current)  current_wall; echo ;;
+    list)     list_walls ;;
+    *)        die "unknown command: $1" ;;
+esac

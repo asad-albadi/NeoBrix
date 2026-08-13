@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  neobrix — development and troubleshooting entry point.
+#
+#  Deliberately small. Everything here exists because it was needed repeatedly
+#  while building the desktop, not to give the project a CLI.
+#
+#    neobrix reload      reload the Hyprland config and the shell, in place
+#    neobrix restart     full shell restart (loses notification history)
+#    neobrix check       validate config, links, units and recent shell errors
+#    neobrix logs        follow the shell log
+#    neobrix status      what is running, which theme, which wallpaper
+#    neobrix theme       show / set / toggle the palette
+#    neobrix wallpaper   passthrough to neobrix-wallpaper
+#    neobrix install     re-run the deployer
+# ─────────────────────────────────────────────────────────────────────────────
+set -uo pipefail
+
+SHELL_UNIT=neobrix-shell.service
+CONFIG_NAME=neobrix
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+if [[ -t 1 ]]; then
+    c_ok=$'\e[32m'; c_bad=$'\e[31m'; c_warn=$'\e[33m'; c_dim=$'\e[2m'; c_off=$'\e[0m'
+else
+    c_ok=""; c_bad=""; c_warn=""; c_dim=""; c_off=""
+fi
+
+ok()   { printf '  %s✓%s %s\n' "$c_ok"   "$c_off" "$*"; }
+bad()  { printf '  %s✗%s %s\n' "$c_bad"  "$c_off" "$*"; FAILED=$((FAILED+1)); }
+warn() { printf '  %s!%s %s\n' "$c_warn" "$c_off" "$*"; }
+head_() { printf '\n%s%s%s\n' "$c_dim" "$*" "$c_off"; }
+
+# ── reload ───────────────────────────────────────────────────────────────────
+# Quickshell reloads its QML on SIGUSR1, which keeps notification history and is
+# far cheaper than restarting the process. The unit maps that to ExecReload.
+cmd_reload() {
+    hyprctl reload >/dev/null && ok "hyprland config reloaded" || bad "hyprctl reload failed"
+    if systemctl --user --quiet is-active "$SHELL_UNIT"; then
+        systemctl --user reload "$SHELL_UNIT" && ok "shell reloaded in place" \
+            || bad "shell reload failed"
+    else
+        systemctl --user start "$SHELL_UNIT" && ok "shell started"
+    fi
+}
+
+cmd_restart() {
+    systemctl --user restart "$SHELL_UNIT" && ok "shell restarted" || bad "restart failed"
+}
+
+# ── check ────────────────────────────────────────────────────────────────────
+cmd_check() {
+    FAILED=0
+
+    head_ "hyprland configuration"
+    if command -v Hyprland >/dev/null; then
+        # --verify-config parses without touching the running session.
+        if out=$(Hyprland --verify-config -c "$CFG/hypr/hyprland.lua" 2>&1); then
+            ok "hyprland.lua parses"
+        else
+            bad "hyprland.lua failed to parse"
+            printf '%s\n' "$out" | tail -15 | sed 's/^/      /'
+        fi
+    fi
+    if command -v hyprctl >/dev/null && hyprctl version >/dev/null 2>&1; then
+        errs=$(hyprctl configerrors 2>/dev/null)
+        # hyprctl prints "no errors" or an empty body when the config is clean.
+        if [[ -z "${errs//[[:space:]]/}" || "$errs" == *"no errors"* ]]; then
+            ok "running session reports no config errors"
+        else
+            bad "running session has config errors"; printf '%s\n' "$errs" | sed 's/^/      /'
+        fi
+        hyprctl eval 'return 1' 2>&1 | grep -qi 'only supported with the lua' \
+            && bad "the running session loaded the legacy hyprland.conf, not hyprland.lua" \
+            || ok "running session is using the Lua config manager"
+    fi
+
+    head_ "deployment"
+    broken=$(find "$CFG" "$HOME/.local" -xtype l 2>/dev/null)
+    [[ -z "$broken" ]] && ok "no broken symlinks" || {
+        bad "broken symlinks:"; printf '%s\n' "$broken" | sed 's/^/      /'; }
+    [[ -e "$CFG/quickshell/$CONFIG_NAME/shell.qml" ]] \
+        && ok "shell config resolves ($CFG/quickshell/$CONFIG_NAME)" \
+        || bad "missing $CFG/quickshell/$CONFIG_NAME/shell.qml"
+    head_ "services"
+    for u in "$SHELL_UNIT" neobrix-session.target hypridle.service \
+             hyprpolkitagent.service cliphist.service; do
+        state=$(systemctl --user is-active "$u" 2>/dev/null)
+        case "$state" in
+            active) ok "$u" ;;
+            *)      bad "$u is $state" ;;
+        esac
+    done
+    failed=$(systemctl --user --failed --no-legend --no-pager 2>/dev/null | wc -l)
+    (( failed == 0 )) && ok "no failed user units" || bad "$failed failed user unit(s)"
+
+    head_ "shell runtime"
+    since=$(systemctl --user show "$SHELL_UNIT" -p ActiveEnterTimestamp --value 2>/dev/null)
+    qmlerr=$(journalctl --user -u "$SHELL_UNIT" --since "${since:--10 min}" --no-pager 2>/dev/null \
+             | grep -E 'WARN|ERROR' | grep -viE 'libEGL|dri2|org\.bluez' | tail -10)
+    [[ -z "$qmlerr" ]] && ok "no QML warnings since the shell started" || {
+        warn "QML warnings since start:"; printf '%s\n' "$qmlerr" | sed 's/^/      /'; }
+    if qs -c "$CONFIG_NAME" ipc call panels state >/dev/null 2>&1; then
+        ok "shell IPC responding"
+    else
+        bad "shell IPC not responding"
+    fi
+
+    head_ "portals & tools"
+    for b in qs Hyprland hyprlock hypridle wl-copy cliphist grim slurp; do
+        command -v "$b" >/dev/null && ok "$b" || bad "$b missing"
+    done
+    busctl --user status org.freedesktop.portal.Desktop >/dev/null 2>&1 \
+        && ok "xdg-desktop-portal running" || warn "xdg-desktop-portal not running"
+
+    printf '\n'
+    (( FAILED == 0 )) && printf '%sall checks passed%s\n' "$c_ok" "$c_off" \
+                      || printf '%s%d check(s) failed%s\n' "$c_bad" "$FAILED" "$c_off"
+    return $(( FAILED > 0 ))
+}
+
+# ── status ───────────────────────────────────────────────────────────────────
+cmd_status() {
+    printf 'shell      %s\n' "$(systemctl --user is-active "$SHELL_UNIT")"
+    printf 'theme      %s\n' "$(qs -c "$CONFIG_NAME" ipc call theme get 2>/dev/null || echo '?')"
+    printf 'wallpaper  %s\n' "$(neobrix-wallpaper current 2>/dev/null || echo '?')"
+    printf 'hyprland   %s\n' "$(hyprctl version 2>/dev/null | head -1)"
+    printf 'monitors   %s\n' "$(hyprctl monitors -j 2>/dev/null | grep -c '"id"')"
+    printf 'repo       %s\n' "$REPO"
+}
+
+cmd_logs()  { journalctl --user -u "$SHELL_UNIT" -f "$@"; }
+cmd_theme() {
+    # Accepts both `neobrix theme dusk` and `neobrix theme set dusk`; without the
+    # explicit `set` case the literal word "set" was passed through as the mode
+    # and the shell quietly ignored it.
+    case "${1:-get}" in
+        get)    qs -c "$CONFIG_NAME" ipc call theme get ;;
+        toggle) qs -c "$CONFIG_NAME" ipc call theme toggle ;;
+        set)    shift
+                [[ $# -ge 1 ]] || { echo "usage: neobrix theme set <dawn|dusk>" >&2; return 2; }
+                cmd_theme "$1" ;;
+        dawn|dusk) qs -c "$CONFIG_NAME" ipc call theme set "$1" ;;
+        *)      echo "unknown theme: $1 (expected dawn, dusk, toggle or get)" >&2; return 2 ;;
+    esac
+}
+
+usage() { sed -n '2,18p' "$(readlink -f "$0")" | sed 's/^# \?//'; }
+
+case "${1:-status}" in
+    reload)    cmd_reload ;;
+    restart)   cmd_restart ;;
+    check)     cmd_check ;;
+    status)    cmd_status ;;
+    logs)      shift; cmd_logs "$@" ;;
+    theme)     shift; cmd_theme "$@" ;;
+    wallpaper) shift; neobrix-wallpaper "$@" ;;
+    install)   shift; "$REPO/install/deploy.sh" "$@" ;;
+    -h|--help|help) usage ;;
+    *)         printf 'unknown command: %s\n\n' "$1"; usage; exit 1 ;;
+esac

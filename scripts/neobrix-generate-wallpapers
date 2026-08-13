@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Generates the built-in Neobrix wallpaper set with ImageMagick + librsvg.
+#
+# Everything here is drawn from scratch from the theme palette, so the set is
+# original artwork with no third-party licensing to carry around.
+#
+#   neobrix-generate-wallpapers [outdir] [WIDTHxHEIGHT]
+
+set -euo pipefail
+
+OUT="${1:-$HOME/.local/share/neobrix/wallpapers}"
+GEOM="${2:-2560x1440}"
+W="${GEOM%x*}"
+H="${GEOM#*x}"
+
+mkdir -p "$OUT"
+command -v magick >/dev/null || { echo "ImageMagick (magick) is required" >&2; exit 1; }
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# ── the default pair: an architectural "skyline" of stacked, outlined slabs ───
+#
+# This is the identity wallpaper, so it is deliberately calm: a flat ground, one
+# bottom-anchored run of masonry, and two large forms above it. Most slabs are
+# neutral and only a few carry an accent, because a wallpaper that uses the full
+# accent rotation competes with the shell sitting on top of it.
+#
+# The earlier default here was a soft gradient wash, which read as pleasant but
+# had nothing to do with the design language — flat colour, hard shadows and
+# strong outlines are the whole point.
+gen_arch() {
+    local name="$1" bg="$2" ink="$3" neutral="$4" neutral2="$5"; shift 5
+    local accents=("$@")
+    local off=$((W / 190))          # hard-shadow offset, scales with the canvas
+    local sw=$((W / 300 + 3))       # outline weight
+    local rx=$((W / 150))
+
+    # shadowed <rect>: hard offset slab behind, outlined slab in front.
+    slab() { # x y w h fill
+        printf '<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="%s"/>\n' \
+            "$(( $1 + off ))" "$(( $2 + off ))" "$3" "$4" "$rx" "$ink"
+        printf '<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="%s" stroke="%s" stroke-width="%s"/>\n' \
+            "$1" "$2" "$3" "$4" "$rx" "$5" "$ink" "$sw"
+    }
+
+    {
+        printf '<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">\n' \
+            "$W" "$H" "$W" "$H"
+        printf '<rect width="%s" height="%s" fill="%s"/>\n' "$W" "$H" "$bg"
+
+        # ── masonry run along the bottom ──
+        # Fixed height ratios (percent of H) so the result is reproducible.
+        local heights=(26 41 18 33 22 47 15 30 38 20 44 25)
+        local n=${#heights[@]}
+        local cw=$(( W / n ))
+        local gap=$(( cw / 9 ))
+        local i x bw bh y fill
+        for (( i = 0; i < n; i++ )); do
+            bw=$(( cw - gap ))
+            bh=$(( H * heights[i] / 100 ))
+            x=$(( i * cw + gap / 2 ))
+            y=$(( H - bh ))
+            # Only every fourth slab is an accent; the rest alternate neutrals.
+            if (( i % 4 == 2 )); then
+                fill=${accents[$(( (i / 4) % ${#accents[@]} ))]}
+            elif (( i % 2 == 0 )); then
+                fill="$neutral"
+            else
+                fill="$neutral2"
+            fi
+            slab "$x" "$y" "$bw" "$bh" "$fill"
+        done
+
+        # ── two large forms above the run ──
+        # An outline-only square (architectural, no visual weight) and one solid
+        # accent block overlapping it, which is the composition's focal point.
+        local sq=$(( H * 34 / 100 ))
+        local sqx=$(( W * 12 / 100 )) sqy=$(( H * 13 / 100 ))
+        printf '<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="none" stroke="%s" stroke-width="%s"/>\n' \
+            "$sqx" "$sqy" "$sq" "$sq" "$rx" "$ink" "$(( sw * 2 ))"
+
+        local blk=$(( H * 17 / 100 ))
+        slab "$(( sqx + sq - blk / 2 ))" "$(( sqy + sq - blk / 2 ))" "$blk" "$blk" "${accents[0]}"
+
+        # A circle on the right, for one non-rectangular note.
+        local cr=$(( H * 11 / 100 ))
+        local ccx=$(( W * 78 / 100 )) ccy=$(( H * 27 / 100 ))
+        printf '<circle cx="%s" cy="%s" r="%s" fill="%s"/>\n' \
+            "$(( ccx + off ))" "$(( ccy + off ))" "$cr" "$ink"
+        printf '<circle cx="%s" cy="%s" r="%s" fill="%s" stroke="%s" stroke-width="%s"/>\n' \
+            "$ccx" "$ccy" "$cr" "${accents[1]}" "$ink" "$sw"
+
+        printf '</svg>\n'
+    } > "$tmp/$name.svg"
+}
+
+gen_arch dawn "#F0E2D2" "#171210" "#FCF6EE" "#E3D3C1" "#F6A97E" "#AFDCA0" "#C4AEF2" "#9FC4E8"
+gen_arch dusk "#14100E" "#F0E2D2" "#241D18" "#1C1613" "#F0A377" "#9FD08F" "#B9A2EC" "#93B8DE"
+
+# ── blocks: an explicitly neo-brutalist composition — offset outlined slabs ──
+gen_blocks() {
+    local name="$1" bg="$2" ink="$3"; shift 3
+    local accents=("$@")
+    {
+        printf '<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">\n' "$W" "$H" "$W" "$H"
+        printf '<rect width="%s" height="%s" fill="%s"/>\n' "$W" "$H" "$bg"
+
+        # Deterministic layout: a coarse grid of slabs, each with a hard shadow.
+        local cols=6 rows=4
+        local cw=$((W / cols)) ch=$((H / rows))
+        local i=0 r c
+        for ((r = 0; r < rows; r++)); do
+            for ((c = 0; c < cols; c++)); do
+                # Skip cells on a fixed pattern so the field breathes.
+                if (( (r * cols + c) % 3 == 1 )); then i=$((i + 1)); continue; fi
+                local pad=$((cw / 6))
+                local x=$((c * cw + pad)) y=$((r * ch + pad))
+                local bw=$((cw - pad * 2)) bh=$((ch - pad * 2))
+                # Vary the block sizes without randomness.
+                if (( (r + c) % 4 == 0 )); then bh=$((bh / 2)); fi
+                if (( (r + c) % 5 == 0 )); then bw=$((bw * 2 / 3)); fi
+                # Coprime strides keep neighbouring slabs different colours instead
+                # of producing monochrome columns.
+                local a=${accents[$(((r * 5 + c * 3) % ${#accents[@]}))]}
+                local off=$((pad / 3))
+                printf '<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="%s"/>\n' \
+                    "$((x + off))" "$((y + off))" "$bw" "$bh" "$((pad / 2))" "$ink"
+                printf '<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="%s" stroke="%s" stroke-width="%s"/>\n' \
+                    "$x" "$y" "$bw" "$bh" "$((pad / 2))" "$a" "$ink" "$((pad / 12 + 3))"
+                i=$((i + 1))
+            done
+        done
+        printf '</svg>\n'
+    } > "$tmp/$name.svg"
+}
+
+gen_blocks blocks-dawn "#F0E2D2" "#171210" "#F6A97E" "#AFDCA0" "#C4AEF2" "#F5A8BC" "#9FC4E8" "#EBC963"
+gen_blocks blocks-dusk "#14100E" "#F0E2D2" "#F0A377" "#9FD08F" "#B9A2EC" "#EE9BB0" "#93B8DE" "#E0BE58"
+
+for f in dawn dusk blocks-dawn blocks-dusk; do
+    magick -background none "$tmp/$f.svg" -resize "${W}x${H}!" \
+        -quality 95 "$OUT/neobrix-$f.png"
+    printf 'generated %s\n' "$OUT/neobrix-$f.png"
+done
