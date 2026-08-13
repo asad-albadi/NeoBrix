@@ -13,6 +13,13 @@ pragma Singleton
 //  Quickshell exposes `Hyprland.usingLua` precisely so a config can adapt.
 //  Everything in this shell goes through the helpers below rather than calling
 //  Hyprland.dispatch directly, so the bar keeps working under either format.
+//
+//  IMPORTANT: pass only the dispatcher *expression* in the Lua form —
+//  `hl.dsp.focus({ workspace = 2 })`, not `hl.dispatch(hl.dsp.focus(...))`.
+//  Quickshell wraps the argument itself, so including the call produced
+//  `return hl.dispatch(hl.dispatch(...))` and every dispatch failed with
+//  "expected a dispatcher", silently: clicking a workspace in the bar did
+//  nothing at all.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import QtQuick
@@ -34,30 +41,30 @@ Singleton {
     // ── workspaces ──────────────────────────────────────────────────────────
     function focusWorkspace(id) {
         dispatch("workspace " + id,
-                 "hl.dispatch(hl.dsp.focus({ workspace = " + id + " }))");
+                 "hl.dsp.focus({ workspace = " + id + " })");
     }
 
     // `selector` is a Hyprland workspace selector such as "m-1", "e+1".
     function focusWorkspaceRelative(selector) {
         dispatch("workspace " + selector,
-                 "hl.dispatch(hl.dsp.focus({ workspace = " + quote(selector) + " }))");
+                 "hl.dsp.focus({ workspace = " + quote(selector) + " })");
     }
 
     function toggleSpecialWorkspace(name) {
         const target = name || root.scratchpad;
         dispatch("togglespecialworkspace " + target,
-                 "hl.dispatch(hl.dsp.workspace.toggle_special(" + quote(target) + "))");
+                 "hl.dsp.workspace.toggle_special(" + quote(target) + ")");
     }
 
     // ── windows ─────────────────────────────────────────────────────────────
     function focusWindow(address) {
         dispatch("focuswindow address:" + address,
-                 "hl.dispatch(hl.dsp.focus({ window = " + quote("address:" + address) + " }))");
+                 "hl.dsp.focus({ window = " + quote("address:" + address) + " })");
     }
 
     function closeWindow(address) {
         dispatch("closewindow address:" + address,
-                 "hl.dispatch(hl.dsp.window.close({ window = " + quote("address:" + address) + " }))");
+                 "hl.dsp.window.close({ window = " + quote("address:" + address) + " })");
     }
 
     // Lua string literal. Addresses and selectors never contain quotes, but

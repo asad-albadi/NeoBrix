@@ -24,10 +24,34 @@ BrixCard {
     color: Theme.surface
     shadowOffset: Theme.shadowSm
 
+    // A player can drop off the bus for a moment — browsers re-register their
+    // MPRIS service on navigation, and Quickshell logs
+    // "ServiceUnknown / The name is not activatable" when it polls one mid-flight.
+    // Swapping straight to the empty state on that made the whole card, seek bar
+    // included, blink out. Hold the last known player briefly instead, so a
+    // transient dropout is invisible and only a real stop clears the card.
+    property bool showPlayer: Media.available
+    readonly property bool playerLive: Media.available
+
+    onPlayerLiveChanged: {
+        if (playerLive) {
+            graceTimer.stop();
+            showPlayer = true;
+        } else {
+            graceTimer.restart();
+        }
+    }
+
+    Timer {
+        id: graceTimer
+        interval: 2500
+        onTriggered: root.showPlayer = false
+    }
+
     // ── nothing playing ─────────────────────────────────────────────────────
     ColumnLayout {
         anchors.centerIn: parent
-        visible: !Media.available
+        visible: !root.showPlayer
         spacing: Theme.spaceXs
 
         Text {
@@ -51,7 +75,7 @@ BrixCard {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.spaceMd
-        visible: Media.available
+        visible: root.showPlayer
         spacing: Theme.spaceSm
 
         // Which player this is, kept out of the way in the top-right corner.
