@@ -1,12 +1,19 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  ACTIVE CONFIG — this is the Neobrix login screen. Nothing to run to apply it.
+#
+#  ReGreet (GTK4, themed by scripts/neobrix-generate-greeter) inside cage.
+#  Takes effect at the next boot, or immediately on `systemctl restart greetd`
+#  (which ends the running graphical session, so do that from a console).
+#
+#  ── EMERGENCY ROLLBACK — only if the greeter fails to appear ──
+#  See /etc/greetd/RECOVERY for the commands. Deliberately not written here:
+#  a ready-to-paste undo sitting in the active config is too easy to run by
+#  mistake.
+# ═══════════════════════════════════════════════════════════════════════════
+
 [terminal]
 vt = 1
 
-# Neobrix login screen: ReGreet (GTK4, themed from the Neobrix palette by
-# scripts/neobrix-generate-greeter) hosted in cage, a minimal kiosk compositor.
-#
-# Rollback if this ever fails to come up — from a TTY or the Proxmox console:
-#   sudo cp /etc/greetd/config.toml.pre-regreet /etc/greetd/config.toml
-#   sudo systemctl restart greetd
 [default_session]
 command = "cage -s -- regreet"
 user = "greeter"

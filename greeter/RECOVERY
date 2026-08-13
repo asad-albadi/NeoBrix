@@ -1,0 +1,15 @@
+Neobrix greeter recovery
+========================
+
+Only needed if the login screen fails to appear after a boot. From a TTY
+(Ctrl+Alt+F2) or the hypervisor console:
+
+    sudo cp /etc/greetd/config.toml.pre-regreet /etc/greetd/config.toml
+    sudo systemctl restart greetd
+
+That restores CachyOS's noctalia-greeter-session, which is still installed.
+
+To put the Neobrix greeter back afterwards:
+
+    sudo cp /etc/greetd/config.toml.neobrix-greeter /etc/greetd/config.toml
+    sudo systemctl restart greetd
