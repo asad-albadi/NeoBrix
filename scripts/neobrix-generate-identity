@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Draws the identity strips used at the top of the README:
+#
+#      docs/identity/palette.png   both palettes, every role, with hex values
+#      docs/identity/shapes-dawn.png
+#      docs/identity/shapes-dusk.png   the component vocabulary in each palette
+#
+#  Generated from lib/palette.sh — the same values neobrix-theme feeds to the
+#  terminals, GTK, Qt, KDE and hyprlock — so the README cannot claim a colour the
+#  desktop does not actually use.
+#
+#      neobrix-generate-identity [outdir]
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+OUT="${1:-$(cd "$HERE/.." && pwd)/docs/identity}"
+# shellcheck source=lib/palette.sh
+source "$HERE/lib/palette.sh"
+
+command -v magick >/dev/null || { echo "ImageMagick (magick) is required" >&2; exit 1; }
+mkdir -p "$OUT"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+
+FONT="JetBrainsMono Nerd Font"
+
+# The roles worth showing: the surfaces you build on, then the accents. Ordered
+# so the two palette rows line up column-for-column.
+ROLES=(DESKTOP BG SURFACE_ALT BG_DEEP FG FG_DIM OUTLINE PRIMARY SECONDARY TERTIARY PINK SUCCESS WARNING ERROR INFO)
+LABELS=(background surface surfaceAlt surfaceDeep foreground foregroundDim outline primary secondary tertiary pink success warning error info)
+
+# ── palette strip ────────────────────────────────────────────────────────────
+# Two rows of swatches, dawn above dusk, each drawn as a Brix card: flat fill,
+# chunky outline, hard offset shadow.
+palette_strip() {
+    local n=${#ROLES[@]}
+    local sw=104 sh=76 gap=12 pad=26 labelh=34 rowlabel=88 off=5 bw=3
+    local w=$(( rowlabel + pad + n * (sw + gap) - gap + pad ))
+    local rowh=$(( sh + labelh ))
+    local h=$(( pad + 2 * rowh + 28 + pad ))
+
+    # Neutral ground so neither palette gets a home-field advantage.
+    local ground=cfc3b6 ink=171210
+
+    {
+        printf '<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">\n' "$w" "$h" "$w" "$h"
+        printf '<rect width="%s" height="%s" fill="#%s"/>\n' "$w" "$h" "$ground"
+
+        local row=0 mode
+        for mode in dawn dusk; do
+            neobrix_palette "$mode"
+            local y=$(( pad + row * (rowh + 14) ))
+
+            printf '<text x="%s" y="%s" font-family="%s" font-size="15" font-weight="800" fill="#%s">%s</text>\n' \
+                "$pad" "$(( y + sh / 2 + 5 ))" "$FONT" "$ink" "$(printf '%s' "$mode" | tr '[:lower:]' '[:upper:]')"
+
+            local i x val
+            for (( i = 0; i < n; i++ )); do
+                x=$(( rowlabel + pad + i * (sw + gap) ))
+                val="${!ROLES[i]}"
+                # shadow slab, then the swatch itself
+                printf '<rect x="%s" y="%s" width="%s" height="%s" rx="7" fill="#%s"/>\n' \
+                    "$(( x + off ))" "$(( y + off ))" "$sw" "$sh" "$ink"
+                printf '<rect x="%s" y="%s" width="%s" height="%s" rx="7" fill="#%s" stroke="#%s" stroke-width="%s"/>\n' \
+                    "$x" "$y" "$sw" "$sh" "$val" "$ink" "$bw"
+                # role name only on the top row; hex under every swatch
+                if (( row == 0 )); then
+                    printf '<text x="%s" y="%s" font-family="%s" font-size="11" font-weight="700" fill="#%s" text-anchor="middle">%s</text>\n' \
+                        "$(( x + sw / 2 ))" "$(( y - 8 ))" "$FONT" "$ink" "${LABELS[i]}"
+                fi
+                printf '<text x="%s" y="%s" font-family="%s" font-size="11" font-weight="700" fill="#%s" text-anchor="middle">#%s</text>\n' \
+                    "$(( x + sw / 2 ))" "$(( y + sh + 20 ))" "$FONT" "$ink" "$val"
+            done
+            row=$(( row + 1 ))
+        done
+        printf '</svg>\n'
+    } > "$tmp/palette.svg"
+
+    magick -background none "$tmp/palette.svg" -quality 95 "$OUT/palette.png"
+    printf 'generated %s\n' "$OUT/palette.png"
+}
+
+# ── shape vocabulary ─────────────────────────────────────────────────────────
+# One strip per palette showing what the components actually look like: the card
+# and its hard shadow, a pill, a chip, a toggle, a slider, a progress meter and
+# the circle. Drawn with the same geometry constants as Theme.qml.
+shapes_strip() {
+    local mode="$1"
+    neobrix_palette "$mode"
+
+    local w=1180 h=210 pad=28 off=5 bw=3
+    local ink="$OUTLINE" ground="$SURFACE_ALT" card="$BG" deep="$BG_DEEP"
+
+    # card x y w h fill radius
+    card() {
+        printf '<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="#%s"/>\n' \
+            "$(( $1 + off ))" "$(( $2 + off ))" "$3" "$4" "$6" "$ink"
+        printf '<rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="#%s" stroke="#%s" stroke-width="%s"/>\n' \
+            "$1" "$2" "$3" "$4" "$6" "$5" "$ink" "$bw"
+    }
+    label() { # x y text
+        printf '<text x="%s" y="%s" font-family="%s" font-size="12" font-weight="700" fill="#%s" text-anchor="middle">%s</text>\n' \
+            "$1" "$2" "$FONT" "$FG_DIM" "$3"
+    }
+
+    {
+        printf '<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">\n' "$w" "$h" "$w" "$h"
+        printf '<rect width="%s" height="%s" fill="#%s"/>\n' "$w" "$h" "$ground"
+
+        local y=46 bh=64
+
+        # card
+        card 28 $y 150 $bh "$card" 13
+        printf '<text x="103" y="%s" font-family="%s" font-size="13" font-weight="800" fill="#%s" text-anchor="middle">CARD</text>\n' \
+            "$(( y + 40 ))" "$FONT" "$FG"
+        label 103 $(( y + bh + 34 )) "BrixCard"
+
+        # button (accent)
+        card 206 $y 140 $bh "$PRIMARY" 13
+        printf '<text x="276" y="%s" font-family="%s" font-size="13" font-weight="800" fill="#%s" text-anchor="middle">BUTTON</text>\n' \
+            "$(( y + 40 ))" "$FONT" "$ON_ACCENT"
+        label 276 $(( y + bh + 34 )) "BrixButton"
+
+        # pill / chip — radius is half the height, not an arbitrary large number:
+        # SVG clamps rx to width/2 and derives ry from it, so rx=999 on a wide
+        # short rect draws an ellipse instead of a pill.
+        card 374 $(( y + 14 )) 118 36 "$SECONDARY" 18
+        printf '<text x="433" y="%s" font-family="%s" font-size="12" font-weight="800" fill="#%s" text-anchor="middle">CHIP</text>\n' \
+            "$(( y + 38 ))" "$FONT" "$ON_ACCENT"
+        label 433 $(( y + bh + 34 )) "BrixChip"
+
+        # toggle — on
+        card 520 $(( y + 14 )) 76 36 "$SUCCESS" 18
+        printf '<circle cx="%s" cy="%s" r="13" fill="#%s"/>\n' "578" "$(( y + 37 ))" "$ink"
+        printf '<circle cx="%s" cy="%s" r="13" fill="#%s" stroke="#%s" stroke-width="%s"/>\n' \
+            "576" "$(( y + 32 ))" "$card" "$ink" "$bw"
+        label 558 $(( y + bh + 34 )) "BrixToggle"
+
+        # slider
+        card 624 $(( y + 22 )) 190 20 "$deep" 10
+        printf '<rect x="%s" y="%s" width="%s" height="%s" rx="7" fill="#%s"/>\n' \
+            "627" "$(( y + 25 ))" "112" "14" "$TERTIARY"
+        printf '<circle cx="%s" cy="%s" r="17" fill="#%s"/>\n' "741" "$(( y + 37 ))" "$ink"
+        printf '<circle cx="%s" cy="%s" r="17" fill="#%s" stroke="#%s" stroke-width="%s"/>\n' \
+            "739" "$(( y + 32 ))" "$card" "$ink" "$bw"
+        label 719 $(( y + bh + 34 )) "BrixSlider"
+
+        # progress
+        card 846 $(( y + 22 )) 190 20 "$deep" 10
+        printf '<rect x="%s" y="%s" width="%s" height="%s" rx="7" fill="#%s"/>\n' \
+            "849" "$(( y + 25 ))" "128" "14" "$INFO"
+        label 941 $(( y + bh + 34 )) "BrixProgress"
+
+        # circle
+        printf '<circle cx="%s" cy="%s" r="32" fill="#%s"/>\n' "1100" "$(( y + 37 ))" "$ink"
+        printf '<circle cx="%s" cy="%s" r="32" fill="#%s" stroke="#%s" stroke-width="%s"/>\n' \
+            "1098" "$(( y + 32 ))" "$PINK" "$ink" "$bw"
+        label 1098 $(( y + bh + 34 )) "hard shadow"
+
+        printf '</svg>\n'
+    } > "$tmp/shapes-$mode.svg"
+
+    magick -background none "$tmp/shapes-$mode.svg" -quality 95 "$OUT/shapes-$mode.png"
+    printf 'generated %s\n' "$OUT/shapes-$mode.png"
+}
+
+palette_strip
+shapes_strip dawn
+shapes_strip dusk
