@@ -78,6 +78,8 @@ In [`docs/screenshots/`](docs/screenshots). Regenerate with
 | **Control center** — audio, media, specs, resources, connectivity | **Calendar** — clock, date, month navigation |
 | ![dusk](docs/screenshots/dusk.png) | ![lock](docs/screenshots/lock.png) |
 | **Neobrix Dark** — the same panel in the `dusk` palette | **Lock screen** — hyprlock, themed from the same palette |
+| ![cursor dawn](docs/screenshots/cursor-dawn.png) | ![cursor dusk](docs/screenshots/cursor-dusk.png) |
+| **Cursor** in `dawn` — the editor theme is generated from the same palette | **Cursor** in `dusk` — switching the desktop palette switches the editor |
 
 ## Architecture
 
@@ -169,7 +171,14 @@ badges stay legible when the neutral accents invert between palettes.
 The mode is not shell-only: changing it runs **`neobrix-theme`**, which renders the
 same palette into the terminals, GTK 3/4, qt5ct/qt6ct, kdeglobals, hyprlock and
 the editor (Cursor / VS Code, as a real theme extension so both variants stay
-selectable from the editor's own picker). Alacritty
+selectable from the editor's own picker).
+
+Syntax colours in the editor theme come from the palette's ANSI ramp rather than
+its accents — the accents are pastels meant to be card fills with dark text on
+top, and as token foregrounds on a cream editor they wash out. The ramp carries a
+darkened set for light backgrounds and a lifted set for dark ones, which is
+exactly this problem. Note that Cursor has no QML grammar built in; install
+`theqtcompany.qt-qml` for highlighting in this project's own source. Alacritty
 imports the generated file and watches it, so open terminals recolour live; kitty
 reloads on SIGUSR1; GTK follows the gsettings `color-scheme`; Qt/KDE applications
 read their palette at startup and so follow on next launch. Those files are

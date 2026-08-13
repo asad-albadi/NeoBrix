@@ -254,29 +254,39 @@ def tok(scopes, fg=None, style=None):
     if style: s["settings"]["fontStyle"] = style
     return s
 
+# Syntax colours come from the ANSI ramp, NOT the UI accents.
+#
+# The accents (primary/secondary/tertiary/pink/info) are pastels intended as card
+# fills with dark text drawn on top. Used as token foregrounds on a cream editor
+# they are barely legible — `import` in lavender and a string in mint both wash
+# out. The palette already carries a ramp built for text at each polarity: the
+# "normal" set is darkened for light backgrounds, the "bright" set lifted for dark
+# ones. Pick whichever matches the mode.
+r = (lambda name: c("B_" + name)) if dark else (lambda name: c("N_" + name))
+
 token_colors = [
     tok(["comment", "punctuation.definition.comment"], dim, "italic"),
-    tok(["string", "string.quoted", "constant.other.symbol"], c("SUCCESS")),
-    tok(["string.regexp"], c("SECONDARY")),
-    tok(["constant.numeric", "constant.language", "constant.character"], c("WARNING")),
+    tok(["string", "string.quoted", "constant.other.symbol"], r("GREEN")),
+    tok(["string.regexp"], r("CYAN")),
+    tok(["constant.numeric", "constant.language", "constant.character"], r("YELLOW")),
     tok(["keyword", "keyword.control", "storage", "storage.type", "storage.modifier"],
-        c("TERTIARY"), "bold"),
+        r("MAGENTA"), "bold"),
     tok(["keyword.operator"], dim),
-    tok(["entity.name.function", "support.function", "meta.function-call"], c("INFO")),
+    tok(["entity.name.function", "support.function", "meta.function-call"], r("BLUE")),
     tok(["entity.name.type", "entity.name.class", "support.type", "support.class"],
-        c("PINK")),
+        r("CYAN")),
     tok(["variable", "meta.definition.variable.name", "support.variable"], fg),
-    tok(["variable.parameter"], c("WARNING")),
-    tok(["variable.other.property", "meta.object-literal.key"], c("INFO")),
-    tok(["entity.name.tag"], c("TERTIARY")),
-    tok(["entity.other.attribute-name"], c("SECONDARY"), "italic"),
+    tok(["variable.parameter"], r("YELLOW")),
+    tok(["variable.other.property", "meta.object-literal.key"], r("BLUE")),
+    tok(["entity.name.tag"], r("MAGENTA")),
+    tok(["entity.other.attribute-name"], r("GREEN"), "italic"),
     tok(["punctuation", "meta.brace"], dim),
-    tok(["markup.heading"], accent, "bold"),
+    tok(["markup.heading"], r("BLUE"), "bold"),
     tok(["markup.bold"], fg, "bold"),
     tok(["markup.italic"], fg, "italic"),
-    tok(["markup.inserted"], c("SUCCESS")),
-    tok(["markup.deleted"], c("ERROR")),
-    tok(["invalid", "invalid.illegal"], c("ERROR")),
+    tok(["markup.inserted"], r("GREEN")),
+    tok(["markup.deleted"], r("RED")),
+    tok(["invalid", "invalid.illegal"], r("RED")),
 ]
 
 theme = {
