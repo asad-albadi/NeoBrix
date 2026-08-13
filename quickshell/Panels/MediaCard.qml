@@ -150,26 +150,15 @@ BrixCard {
         }
 
         // ── seek ────────────────────────────────────────────────────────────
-        // Streams (YouTube Music through a browser, internet radio) report no
-        // length, which rendered as "0:04 / 0:00" beside a slider pinned at zero
-        // — it read as broken rather than as "not seekable". With no length there
-        // is nothing to seek within, so show the elapsed time alone instead.
-        Text {
-            Layout.fillWidth: true
-            Layout.topMargin: Theme.spaceXs
-            visible: Media.length <= 0
-            text: Media.fmtTime(Media.position)
-            horizontalAlignment: Text.AlignHCenter
-            font.family: Theme.fontMono
-            font.pixelSize: Theme.fontXs
-            font.weight: Theme.weightBold
-            color: Theme.foregroundDim
-        }
-
+        // Always present, even when the track reports no length. Streams
+        // (YouTube Music in a browser, internet radio) omit mpris:length, and
+        // hiding the row in that case made the control vanish entirely and the
+        // card's layout jump between tracks that do and do not report one.
+        // Showing "--:--" for an unknown total is honest without implying a
+        // zero-length track, which is what a bare "0:00" did.
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: Theme.spaceXs
-            visible: Media.length > 0
             spacing: Theme.spaceSm
 
             Text {
@@ -185,16 +174,19 @@ BrixCard {
                 trackHeight: 10
                 value: Media.progress
                 accent: Theme.primary
-                enabled: Media.canSeek
+                // Nothing to seek within when the length is unknown, so the
+                // slider stays visible but inert rather than disappearing.
+                enabled: Media.canSeek && Media.length > 0
                 onMoved: v => Media.seekTo(v)
             }
 
             Text {
-                text: Media.fmtTime(Media.length)
+                text: Media.length > 0 ? Media.fmtTime(Media.length) : "--:--"
                 font.family: Theme.fontMono
                 font.pixelSize: Theme.fontXs
                 font.weight: Theme.weightBold
                 color: Theme.foregroundDim
+                opacity: Media.length > 0 ? 1.0 : 0.6
             }
         }
 
