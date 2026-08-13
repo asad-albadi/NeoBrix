@@ -89,6 +89,10 @@ Singleton {
         }
     }
 
+    // Until the saved selection has been read, `current` being empty means "not
+    // known yet", not "nothing selected" — see the fallback in the lister below.
+    property bool selectionResolved: false
+
     FileView {
         id: selection
         path: root.stateFile
@@ -98,7 +102,11 @@ Singleton {
         onLoaded: {
             const p = text().trim();
             if (p !== "") root.current = p;
+            root.selectionResolved = true;
         }
+        // No state file yet (first run) — there is nothing to restore, so the
+        // fallback is free to choose.
+        onLoadFailed: root.selectionResolved = true
         onFileChanged: reload()
     }
 
@@ -115,11 +123,24 @@ Singleton {
             onStreamFinished: {
                 const list = text.split("\n").filter(l => l.trim() !== "");
                 root.available = list;
-                // Fall back to the first wallpaper if nothing valid is selected.
-                if (root.current === "" && list.length > 0)
+                // Fall back to the first wallpaper only once we know there is no
+                // saved selection. This listing usually finishes before the state
+                // file has been read, and the unguarded fallback then overwrote
+                // the user's chosen wallpaper with whatever sorted first — which
+                // is how a deliberate choice silently became the "blocks" variant
+                // after a reboot.
+                if (root.selectionResolved && root.current === "" && list.length > 0)
                     root.setWallpaper(list[0]);
             }
         }
+    }
+
+    // The listing and the state-file read race each other, so whichever finishes
+    // last has to apply the fallback. This is the other half of the guard in the
+    // lister above.
+    onSelectionResolvedChanged: {
+        if (selectionResolved && current === "" && available.length > 0)
+            setWallpaper(available[0]);
     }
 
     function refresh() { lister.running = true; }

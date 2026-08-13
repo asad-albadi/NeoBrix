@@ -44,11 +44,11 @@ In [`docs/screenshots/`](docs/screenshots). Regenerate with
 | | |
 |---|---|
 | ![desktop](docs/screenshots/desktop.png) | ![launcher](docs/screenshots/launcher.png) |
-| bar, wallpaper, window decoration | application launcher |
-| ![control center](docs/screenshots/control-center.png) | ![dusk](docs/screenshots/dusk.png) |
-| control center — system tab | the same panel in the `dusk` palette |
-| ![lock](docs/screenshots/lock.png) | |
-| hyprlock | |
+| **Desktop** — bar and generated wallpaper | **Launcher** — fuzzy search over `.desktop` entries |
+| ![control center](docs/screenshots/control-center.png) | ![calendar](docs/screenshots/calendar.png) |
+| **Control center** — audio, media, specs, resources, connectivity | **Calendar** — clock, date, month navigation |
+| ![dusk](docs/screenshots/dusk.png) | ![lock](docs/screenshots/lock.png) |
+| **Neobrix Dark** — the same panel in the `dusk` palette | **Lock screen** — hyprlock, themed from the same palette |
 
 ## Architecture
 

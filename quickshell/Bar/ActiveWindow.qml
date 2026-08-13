@@ -20,7 +20,16 @@ Item {
         return toplevel.lastIpcObject.class || "";
     }
     readonly property string title: toplevel && toplevel.title ? toplevel.title : ""
-    readonly property bool hasWindow: toplevel !== null && title !== ""
+
+    // Hyprland does not always clear the active toplevel when focus moves to an
+    // empty workspace, so the bar kept displaying the last focused window's title
+    // over a bare desktop. Requiring the remembered window to actually live on the
+    // focused workspace makes the stale case resolve to "Desktop".
+    readonly property bool onFocusedWorkspace: {
+        if (!toplevel || !toplevel.workspace || !Hyprland.focusedWorkspace) return false;
+        return toplevel.workspace.id === Hyprland.focusedWorkspace.id;
+    }
+    readonly property bool hasWindow: toplevel !== null && title !== "" && onFocusedWorkspace
 
     readonly property var entry: appClass !== "" ? DesktopEntries.heuristicLookup(appClass) : null
     readonly property string iconName: entry && entry.icon ? entry.icon : appClass.toLowerCase()
