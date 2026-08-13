@@ -193,15 +193,28 @@ BrixCard {
                 color: Theme.foregroundDim
             }
 
+            // Seekable: a real slider with a draggable handle.
             BrixSlider {
                 Layout.fillWidth: true
+                visible: Media.canSeek && Media.length > 0
                 trackHeight: 10
                 value: Media.progress
                 accent: Theme.primary
-                // Nothing to seek within when the length is unknown, so the
-                // slider stays visible but inert rather than disappearing.
-                enabled: Media.canSeek && Media.length > 0
                 onMoved: v => Media.seekTo(v)
+            }
+
+            // Not seekable: a plain meter, not a faded slider. BrixSlider drops
+            // to 45% opacity when disabled, which on a stream (no mpris:length,
+            // so nothing to seek within) left the bar looking washed out and
+            // half-broken — and this design rejects transparency as a state cue
+            // anyway. A handle-less meter at full opacity says "position only,
+            // not draggable" without dimming anything.
+            BrixProgress {
+                Layout.fillWidth: true
+                visible: !(Media.canSeek && Media.length > 0)
+                implicitHeight: 10
+                value: Media.progress
+                accent: Theme.primary
             }
 
             Text {
