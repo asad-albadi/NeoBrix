@@ -77,7 +77,9 @@ cmd_check() {
     fi
 
     head_ "deployment"
-    broken=$(find "$CFG" "$HOME/.local" -xtype l 2>/dev/null)
+    # Firefox-family browsers (Zen) keep a profile "lock" symlink pointing at
+    # <address>:+<pid> while running — dangling by design, not a deployment fault.
+    broken=$(find "$CFG" "$HOME/.local" -xtype l -not -name lock 2>/dev/null)
     [[ -z "$broken" ]] && ok "no broken symlinks" || {
         bad "broken symlinks:"; printf '%s\n' "$broken" | sed 's/^/      /'; }
     [[ -e "$CFG/quickshell/$CONFIG_NAME/shell.qml" ]] \

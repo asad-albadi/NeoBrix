@@ -178,6 +178,7 @@ link hypr/xdph.conf        "$CFG/hypr/xdph.conf"
 link uwsm/env              "$CFG/uwsm/env"
 link terminal/alacritty/alacritty.toml "$CFG/alacritty/alacritty.toml"
 link terminal/kitty/kitty.conf         "$CFG/kitty/kitty.conf"
+link terminal/fastfetch/config.jsonc   "$CFG/fastfetch/config.jsonc"
 # GTK, Qt and KDE colours are *generated* by neobrix-theme rather than linked:
 # they must follow the shell's light/dark mode, and KDE applications write to
 # kdeglobals themselves — a symlink there gets rewritten and the theme drifts

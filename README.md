@@ -80,6 +80,8 @@ In [`docs/screenshots/`](docs/screenshots). Regenerate with
 | **Neobrix Dark** — the same panel in the `dusk` palette | **Lock screen** — hyprlock, themed from the same palette |
 | ![cursor dawn](docs/screenshots/cursor-dawn.png) | ![cursor dusk](docs/screenshots/cursor-dusk.png) |
 | **Cursor** in `dawn` — the editor theme is generated from the same palette | **Cursor** in `dusk` — switching the desktop palette switches the editor |
+| ![fastfetch dawn](docs/screenshots/fastfetch-dawn.png) | ![fastfetch dusk](docs/screenshots/fastfetch-dusk.png) |
+| **Terminal greeting** in `dawn` — grouped `fastfetch` readout | the same greeting in `dusk`, recoloured by the terminal palette |
 
 ## Architecture
 
@@ -192,6 +194,27 @@ desaturates the accents just enough to sit on a dark ground without glowing.
 `Theme.textOn()` exists precisely because the neutral accents swap luminance
 between the two palettes, so a fixed "text on accent" colour would vanish in one
 of them.
+
+### Terminal greeting
+
+`fish_greeting` runs `fastfetch`, configured by `terminal/fastfetch/config.jsonc`
+into four boxed groups — Hardware, Software, Desktop, Age/Uptime/Update — with
+tree-style keys and one colour per group, rather than a single flat list. The
+distro logo is left on auto-detect, so it stays whatever the distribution ships.
+The layout grammar is modelled on [Omarchy](https://omarchy.org)'s fastfetch
+config; the modules, icons, colours and commands are Neobrix's own.
+
+Group colours are ANSI *names*, not hex. Because `neobrix-theme` generates the
+terminal palette from the same source as the shell, `green` in that file **is**
+Neobrix pistachio — so the whole readout follows a dawn/dusk switch without the
+config knowing anything about the palette. The same applies to the `Neobrix`
+row's colour dots, and it is why an already-printed greeting recolours in place
+when the mode changes.
+
+Regenerate with **`neobrix-generate-fastfetch`** rather than editing the JSON by
+hand. The Nerd Font icons are Private-Use codepoints that do not survive being
+copied around — authoring the file by hand silently dropped ten of them, leaving
+bare tree connectors — so the generator writes them by codepoint.
 
 The neo-brutalist signature lives in **`BrixCard`**: a flat fill, a chunky outline,
 and a hard offset shadow drawn as a negative-z child (Qt Quick paints those behind
@@ -398,8 +421,10 @@ neobrix/
 │   ├── Notifications/     toasts, history, level OSD
 │   ├── Services/          singletons wrapping the native integrations
 │   └── Wallpaper/
-├── terminal/              alacritty, kitty
-├── scripts/               neobrix-theme, -wallpaper, -screenshot, -generate-wallpapers
+├── terminal/              alacritty, kitty, fastfetch
+├── scripts/               neobrix, -theme, -wallpaper, -screenshot,
+│                          -generate-{wallpapers,identity,fastfetch,editor-theme}
+│   └── lib/palette.sh     the palette, shared by every generator
 ├── systemd/               user units
 ├── uwsm/env               session environment
 ├── install/               deploy.sh, packages.sh
