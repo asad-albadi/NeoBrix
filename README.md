@@ -233,22 +233,27 @@ browser profile) and has no managed-storage support, so nothing can push setting
 into it from outside. `neobrix-generate-darkreader` therefore produces two files
 to feed it by hand, both from the same palette:
 
-| file | where it goes |
-|---|---|
-| `darkreader-neobrix.json` | Settings → Manage Settings → **Import Settings** |
-| `darkreader-dynamic-fixes.txt` | Dev Tools → **Edit dynamic theme fixes** |
+| file | where it goes | needed? |
+|---|---|---|
+| `darkreader-neobrix.json` | Settings → Manage Settings → **Import Settings** | yes — this is the whole thing |
+| `darkreader-dynamic-fixes.txt` | Dev Tools → **Edit dynamic theme fixes** | optional extra |
 
-Both live under `$XDG_DATA_HOME/neobrix/`.
+Both live under `$XDG_DATA_HOME/neobrix/`. **Importing the JSON is sufficient** —
+verified in practice; the dynamic fixes are optional polish, not a second half of
+the setup.
 
 The settings file carries **both** colour schemes, so one import covers dawn and
-dusk, and sets `automation.mode = "system"`. `neobrix-generate-zen-theme` pins
-`ui.systemUsesDarkTheme` to the active palette — extensions read that through
-`matchMedia("(prefers-color-scheme: dark)")` — so Dark Reader flips with a
-dawn/dusk toggle without being re-imported.
+dusk, and sets `automation.mode = "system"`. Two things make "system" mean
+Neobrix: `neobrix-theme` already sets the desktop's `color-scheme` through
+gsettings/the portal, which is what Firefox derives system dark mode from, and
+`neobrix-generate-zen-theme` additionally pins `ui.systemUsesDarkTheme` as a
+belt-and-braces override for cases where the portal is not consulted. Either way
+Dark Reader flips with a dawn/dusk toggle and never needs re-importing.
 
-The dynamic fixes add what the scheme colours cannot: `accent-color` for native
-checkboxes/radios/ranges, the `::selection` colours, scrollbar tones and the
-focus ring. Colours there are wrapped in Dark Reader's `${...}` syntax, which
+The dynamic fixes are optional. They add what the scheme colours cannot:
+`accent-color` for native checkboxes/radios/ranges, the `::selection` colours,
+scrollbar tones and the focus ring — worth pasting if you want the peach accent
+inside form controls, but the import alone already reads as Neobrix. Colours there are wrapped in Dark Reader's `${...}` syntax, which
 means "adapt this colour to the active theme" — that is what makes one block
 correct in both schemes rather than pinning it to one. It is deliberately
 restrained, because the block applies to every site: only properties that cannot
