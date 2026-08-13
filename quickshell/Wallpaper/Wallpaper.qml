@@ -57,10 +57,23 @@ Variants {
         // never shows a half-decoded image.
         function show(path) {
             if (path === "") return;
+            const url = Qt.resolvedUrl("file://" + path);
             const target = win.flip ? layerA : layerB;
             const shown = win.flip ? layerB : layerA;
-            if (shown.source == Qt.resolvedUrl("file://" + path)) return;
-            target.source = "file://" + path;
+            if (shown.source == url) return;
+
+            // The flip is driven by onStatusChanged, which only fires when the
+            // status actually *changes*. Alternating between two wallpapers —
+            // exactly what a dawn/dusk toggle does — eventually leaves the hidden
+            // layer already holding the wanted image at status Ready, so
+            // reassigning the same source was a no-op, no signal arrived, and the
+            // desktop kept showing the other image while Wall.current reported
+            // the new one. Swap straight away in that case.
+            if (target.source == url && target.status === Image.Ready) {
+                win.flip = !win.flip;
+                return;
+            }
+            target.source = url;
         }
 
         Connections {

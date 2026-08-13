@@ -390,6 +390,13 @@ if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-editor-theme" ]]; th
     "$(dirname "$(readlink -f "$0")")/neobrix-generate-editor-theme" "$MODE" >/dev/null 2>&1 || true
 fi
 
+# ── Zen Browser ─────────────────────────────────────────────────────────────
+# Writes prefs + userChrome/userContent into the profile. Needs a Zen restart to
+# take effect, so it is not part of the "reload in place" set below.
+if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" ]]; then
+    "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" "$MODE" >/dev/null 2>&1 || true
+fi
+
 # ── nudge what can reload in place ──────────────────────────────────────────
 # alacritty watches its config (live_config_reload); kitty reloads on SIGUSR1.
 pkill -SIGUSR1 -x kitty 2>/dev/null || true
@@ -397,4 +404,4 @@ pkill -SIGUSR1 -x kitty 2>/dev/null || true
 # hyprlock reads its config when it launches, so it needs no signal.
 
 printf '%s\n' "$MODE" > "$STATE_DIR/theme"
-printf 'applied %s to terminals, GTK, Qt, KDE, hyprlock and the editor\n' "$MODE"
+printf 'applied %s to terminals, GTK, Qt, KDE, hyprlock, the editor and Zen\n' "$MODE"

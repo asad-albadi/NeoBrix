@@ -173,7 +173,8 @@ badges stay legible when the neutral accents invert between palettes.
 The mode is not shell-only: changing it runs **`neobrix-theme`**, which renders the
 same palette into the terminals, GTK 3/4, qt5ct/qt6ct, kdeglobals, hyprlock and
 the editor (Cursor / VS Code, as a real theme extension so both variants stay
-selectable from the editor's own picker).
+selectable from the editor's own picker) and Zen Browser (prefs plus
+userChrome/userContent in the profile).
 
 Syntax colours in the editor theme come from the palette's ANSI ramp rather than
 its accents — the accents are pastels meant to be card fills with dark text on
@@ -194,6 +195,36 @@ desaturates the accents just enough to sit on a dark ground without glowing.
 `Theme.textOn()` exists precisely because the neutral accents swap luminance
 between the two palettes, so a fixed "text on accent" colour would vanish in one
 of them.
+
+### Zen Browser
+
+`neobrix-generate-zen-theme` writes into the Zen profile — not a symlink from the
+repo, because the profile directory name is machine-specific and Zen rewrites
+`prefs.js` itself. Three levers, in order of how well they survive a Zen update:
+
+* **`user.js`** — Zen's own `zen.theme.accent-color`, plus the light/dark scheme
+  (`layout.css.prefers-color-scheme.content-override`, `browser.theme.*`). These
+  are supported settings.
+* **`chrome/neobrix.css`** — the browser UI, imported from `userChrome.css` so
+  anything you add yourself is preserved. Everything is written inside a
+  `neobrix:begin/end` block, so the generator never clobbers your own rules.
+* **`chrome/userContent.css`** — internal pages, so a new tab is not a white flash
+  in dusk.
+
+Two details worth knowing, both found by unpacking `browser/omni.ja` rather than
+guessing at selectors:
+
+* The vertical tab sidebar is painted by **`--zen-main-browser-background`** and
+  its `-toolbar` variant. Setting only the `--zen-colors-*` family leaves it
+  untouched.
+* Popup borders are **not** on `menupopup`/`panel` — Firefox draws them on the
+  shadow-DOM `::part(content)` as `1px solid var(--panel-border-color)`. Styling
+  the host element only ever yields the thin default outline; the chunky border
+  has to go on `::part(content)`.
+
+**Zen must be restarted** for the chrome stylesheets to load. `neobrix-theme`
+regenerates them on a palette switch, but the running browser keeps the old ones
+until it restarts.
 
 ### Terminal greeting
 
@@ -423,7 +454,8 @@ neobrix/
 │   └── Wallpaper/
 ├── terminal/              alacritty, kitty, fastfetch
 ├── scripts/               neobrix, -theme, -wallpaper, -screenshot,
-│                          -generate-{wallpapers,identity,fastfetch,editor-theme}
+│                          -generate-{wallpapers,identity,fastfetch,
+│                                     editor-theme,zen-theme}
 │   └── lib/palette.sh     the palette, shared by every generator
 ├── systemd/               user units
 ├── uwsm/env               session environment
