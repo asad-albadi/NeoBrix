@@ -1,0 +1,15 @@
+*
+
+CSS
+* {
+    accent-color: ${#f6a97e} !important;
+    scrollbar-color: ${#e3d3c1} ${#f1e6d9};
+}
+::selection {
+    background-color: ${#f6a97e} !important;
+    color: ${#171210} !important;
+}
+:focus-visible {
+    outline: 2px solid ${#f6a97e} !important;
+    outline-offset: 2px !important;
+}

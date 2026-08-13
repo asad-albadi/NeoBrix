@@ -238,9 +238,14 @@ to feed it by hand, both from the same palette:
 | `darkreader-neobrix.json` | Settings → Manage Settings → **Import Settings** | yes — this is the whole thing |
 | `darkreader-dynamic-fixes.txt` | Dev Tools → **Edit dynamic theme fixes** | optional extra |
 
-Both live under `$XDG_DATA_HOME/neobrix/`. **Importing the JSON is sufficient** —
-verified in practice; the dynamic fixes are optional polish, not a second half of
-the setup.
+Both are committed under [`theming/darkreader/`](theming/darkreader) so they can
+be used on their own, in any browser Dark Reader supports, without deploying the
+rest of Neobrix — see that directory's
+[README](theming/darkreader/README.md) for step-by-step import instructions.
+`neobrix-theme` also writes a live copy to `$XDG_DATA_HOME/neobrix/`.
+
+**Importing the JSON is sufficient** — verified in practice; the dynamic fixes are
+optional polish, not a second half of the setup.
 
 The settings file carries **both** colour schemes, so one import covers dawn and
 dusk, and sets `automation.mode = "system"`. Two things make "system" mean
@@ -490,6 +495,7 @@ neobrix/
 │   ├── Services/          singletons wrapping the native integrations
 │   └── Wallpaper/
 ├── terminal/              alacritty, kitty, fastfetch
+├── theming/darkreader/    importable Dark Reader config (generated)
 ├── scripts/               neobrix, -theme, -wallpaper, -screenshot,
 │                          -generate-{wallpapers,identity,fastfetch,
 │                                     editor-theme,zen-theme,darkreader}

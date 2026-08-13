@@ -1,0 +1,29 @@
+{
+  "enabled": true,
+  "enabledByDefault": true,
+  "theme": {
+    "mode": 1,
+    "brightness": 100,
+    "contrast": 100,
+    "grayscale": 0,
+    "sepia": 0,
+    "engine": "dynamicTheme",
+    "darkSchemeBackgroundColor": "#2e241c",
+    "darkSchemeTextColor": "#f6ede2",
+    "lightSchemeBackgroundColor": "#fcf6ee",
+    "lightSchemeTextColor": "#1e1815",
+    "selectionColor": "#f0a377",
+    "scrollbarColor": "#100d0b",
+    "styleSystemControls": true,
+    "useFont": false,
+    "textStroke": 0
+  },
+  "automation": {
+    "enabled": true,
+    "mode": "system",
+    "behavior": "OnOff"
+  },
+  "detectDarkTheme": true,
+  "enableForPDF": true,
+  "syncSettings": false
+}
