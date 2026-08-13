@@ -397,6 +397,14 @@ if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" ]]; then
     "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" "$MODE" >/dev/null 2>&1 || true
 fi
 
+# ── Dark Reader ─────────────────────────────────────────────────────────────
+# Regenerates the importable settings + dynamic fixes. These carry both schemes,
+# so they do not depend on $MODE; regenerated here only so a palette edit reaches
+# them. Dark Reader has no external config, so importing stays a manual step.
+if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-darkreader" ]]; then
+    "$(dirname "$(readlink -f "$0")")/neobrix-generate-darkreader" >/dev/null 2>&1 || true
+fi
+
 # ── nudge what can reload in place ──────────────────────────────────────────
 # alacritty watches its config (live_config_reload); kitty reloads on SIGUSR1.
 pkill -SIGUSR1 -x kitty 2>/dev/null || true

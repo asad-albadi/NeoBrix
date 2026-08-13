@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Generate a Dark Reader settings file carrying the Neobrix palette.
+#
+#      neobrix-generate-darkreader [outdir]
+#
+#  Produces two files:
+#
+#    darkreader-neobrix.json         base scheme colours   (Manage Settings -> Import)
+#    darkreader-dynamic-fixes.txt    site-wide accent CSS  (Dev Tools -> dynamic fixes)
+#
+#  Dark Reader keeps its configuration in extension storage (IndexedDB inside the
+#  browser profile), not in a file, so there is no supported way to push settings
+#  into it from outside. What it does support is importing a settings JSON, which
+#  is what this produces — import it once via
+#
+#      Dark Reader → Settings → Manage Settings → Import Settings
+#
+#  The file sets BOTH colour schemes, so one import covers dawn and dusk. Dark
+#  Reader then switches between them on its own: `automation.mode = "system"`
+#  makes it follow the browser's system colour scheme, and
+#  `neobrix-generate-zen-theme` pins that to the active palette via
+#  `ui.systemUsesDarkTheme`. So toggling the desktop palette flips Dark Reader
+#  with it, without this file being regenerated or re-imported.
+#
+#  Schema keys are taken from Dark Reader's own src/defaults.ts rather than
+#  guessed; unknown keys would be silently dropped on import.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+# shellcheck source=lib/palette.sh
+source "$HERE/lib/palette.sh"
+
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/neobrix"
+OUTDIR="${1:-$DATA}"
+OUT="$OUTDIR/darkreader-neobrix.json"
+FIXES="$OUTDIR/darkreader-dynamic-fixes.txt"
+mkdir -p "$OUTDIR"
+
+# Dark scheme from the dusk palette, light scheme from dawn.
+neobrix_palette dusk
+DUSK_BG="$BG"; DUSK_FG="$FG"; DUSK_SEL="$PRIMARY"; DUSK_SCROLL="$BG_DEEP"
+neobrix_palette dawn
+DAWN_BG="$BG"; DAWN_FG="$FG"
+
+python3 - "$OUT" "$DUSK_BG" "$DUSK_FG" "$DAWN_BG" "$DAWN_FG" "$DUSK_SEL" "$DUSK_SCROLL" <<'PY'
+import json, sys
+
+out, dbg, dfg, lbg, lfg, sel, scroll = sys.argv[1:8]
+
+settings = {
+    "enabled": True,
+    "enabledByDefault": True,
+    "theme": {
+        # 1 = dark, 0 = light. Which one is used is decided by the automation
+        # below, not by this value, but it is the starting point.
+        "mode": 1,
+        "brightness": 100,
+        "contrast": 100,
+        "grayscale": 0,
+        "sepia": 0,
+        # dynamicTheme rewrites colours per element, which keeps the palette
+        # recognisable. The cssFilter engine just inverts and hue-rotates, which
+        # would turn the Neobrix accents into arbitrary colours.
+        "engine": "dynamicTheme",
+        "darkSchemeBackgroundColor": f"#{dbg}",
+        "darkSchemeTextColor": f"#{dfg}",
+        "lightSchemeBackgroundColor": f"#{lbg}",
+        "lightSchemeTextColor": f"#{lfg}",
+        "selectionColor": f"#{sel}",
+        "scrollbarColor": f"#{scroll}",
+        "styleSystemControls": True,
+        "useFont": False,
+        "textStroke": 0,
+    },
+    # Follow the browser's system colour scheme. Neobrix pins that to the active
+    # palette through ui.systemUsesDarkTheme, so this is what makes Dark Reader
+    # track a dawn/dusk toggle.
+    "automation": {
+        "enabled": True,
+        "mode": "system",
+        "behavior": "OnOff",
+    },
+    "detectDarkTheme": True,
+    "enableForPDF": True,
+    # Leaving sync on would let a previously-synced config overwrite this one.
+    "syncSettings": False,
+}
+
+with open(out, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+print(f"wrote {out}")
+PY
+
+
+
+# ── dynamic theme fixes ─────────────────────────────────────────────────────
+# Dark Reader's Dev Tools accept per-site blocks: a URL pattern, a blank line,
+# then section keywords (CSS / INVERT / IGNORE INLINE STYLE / ...). Blocks are
+# separated by a line of "=".
+#
+# Colours are wrapped in ${...}, which is Dark Reader's own syntax for "treat
+# this as a colour and adapt it to the active theme". That is what lets a single
+# block be correct in both dawn and dusk — the dawn values below are adapted for
+# the dark scheme automatically. Hardcoding literals would have pinned one scheme.
+#
+# Deliberately restrained: this applies to every site, so it touches only things
+# that cannot break a layout — selection, scrollbars, the focus ring, and
+# accent-color, which is the standard CSS property browsers use to tint native
+# checkboxes, radios, ranges and progress bars.
+neobrix_palette dawn
+cat > "$FIXES" <<EOF
+*
+
+CSS
+* {
+    accent-color: \${#$PRIMARY} !important;
+    scrollbar-color: \${#$BG_DEEP} \${#$SURFACE_ALT};
+}
+::selection {
+    background-color: \${#$PRIMARY} !important;
+    color: \${#$ON_ACCENT} !important;
+}
+:focus-visible {
+    outline: 2px solid \${#$PRIMARY} !important;
+    outline-offset: 2px !important;
+}
+EOF
+
+printf 'wrote %s\n' "$FIXES"
+printf '\nnext steps in Dark Reader:\n'
+printf '  1. Settings -> Manage Settings -> Import Settings  ->  %s\n' "$OUT"
+printf '  2. Dev Tools -> Edit dynamic theme fixes: paste the contents of\n'
+printf '     %s at the TOP, then a line of = signs, keeping the rest.\n' "$FIXES"
+printf '     (Replacing the whole box would discard every built-in site fix.)\n'
+

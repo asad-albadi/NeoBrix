@@ -226,6 +226,38 @@ guessing at selectors:
 regenerates them on a palette switch, but the running browser keeps the old ones
 until it restarts.
 
+### Dark Reader
+
+Dark Reader keeps its configuration in extension storage (IndexedDB inside the
+browser profile) and has no managed-storage support, so nothing can push settings
+into it from outside. `neobrix-generate-darkreader` therefore produces two files
+to feed it by hand, both from the same palette:
+
+| file | where it goes |
+|---|---|
+| `darkreader-neobrix.json` | Settings → Manage Settings → **Import Settings** |
+| `darkreader-dynamic-fixes.txt` | Dev Tools → **Edit dynamic theme fixes** |
+
+Both live under `$XDG_DATA_HOME/neobrix/`.
+
+The settings file carries **both** colour schemes, so one import covers dawn and
+dusk, and sets `automation.mode = "system"`. `neobrix-generate-zen-theme` pins
+`ui.systemUsesDarkTheme` to the active palette — extensions read that through
+`matchMedia("(prefers-color-scheme: dark)")` — so Dark Reader flips with a
+dawn/dusk toggle without being re-imported.
+
+The dynamic fixes add what the scheme colours cannot: `accent-color` for native
+checkboxes/radios/ranges, the `::selection` colours, scrollbar tones and the
+focus ring. Colours there are wrapped in Dark Reader's `${...}` syntax, which
+means "adapt this colour to the active theme" — that is what makes one block
+correct in both schemes rather than pinning it to one. It is deliberately
+restrained, because the block applies to every site: only properties that cannot
+break a layout.
+
+When pasting the fixes, add them at the **top** of the Dev Tools box followed by a
+`====` separator line and keep everything below. Replacing the whole box discards
+every built-in site fix Dark Reader ships.
+
 ### Terminal greeting
 
 `fish_greeting` runs `fastfetch`, configured by `terminal/fastfetch/config.jsonc`
@@ -455,7 +487,7 @@ neobrix/
 ├── terminal/              alacritty, kitty, fastfetch
 ├── scripts/               neobrix, -theme, -wallpaper, -screenshot,
 │                          -generate-{wallpapers,identity,fastfetch,
-│                                     editor-theme,zen-theme}
+│                                     editor-theme,zen-theme,darkreader}
 │   └── lib/palette.sh     the palette, shared by every generator
 ├── systemd/               user units
 ├── uwsm/env               session environment
