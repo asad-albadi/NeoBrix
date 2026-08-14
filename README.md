@@ -505,12 +505,19 @@ The dotfiles are written to run unchanged on real hardware:
   ```
 * Touchpad settings, gestures and brightness keys appear automatically once that
   hardware exists — the config probes for it rather than assuming.
-* **Join Wi-Fi once from the terminal before relying on the panel.** The
-  connectivity tab lists networks and can toggle the radio, connect and
-  disconnect, but it has no passphrase prompt, and nothing in the session
-  registers a NetworkManager secret agent. Clicking a secured network with no
-  saved profile therefore cannot succeed — such rows say `needs nmtui once`
-  rather than offering a click that fails. Create the profile once:
+* **A secured network with no saved profile needs one passphrase entry, and
+  Neobrix has no field for it yet.** The connectivity tab lists networks and can
+  toggle the radio, connect and disconnect, but nothing in the shell asks for a
+  PSK, so those rows say `needs nmtui once` rather than offering a click that
+  fails silently.
+
+  This is a missing piece of UI, not a missing piece of plumbing: Quickshell's
+  `WifiNetwork` exposes **`connectWithPsk(psk)`**, which hands the passphrase to
+  NetworkManager directly, so no separate NetworkManager secret agent is needed
+  in the session. A prompt wired to that call is the supported path, and is
+  scoped as its own change.
+
+  Until then, create the profile once from the terminal:
 
   ```bash
   nmtui                       # or: nmcli device wifi connect <SSID> --ask
