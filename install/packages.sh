@@ -30,6 +30,9 @@ SERVICES=(
     pipewire pipewire-pulse pipewire-alsa wireplumber
     networkmanager
     bluez bluez-utils
+    bluez-tools            # bt-agent: BlueZ will not bond without a registered
+                           # agent, so without this a device pairs temporarily
+                           # and is forgotten seconds later
     xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-gtk
     polkit
     power-profiles-daemon

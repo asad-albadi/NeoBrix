@@ -197,6 +197,56 @@ its own outline rather than a shadow slab behind it.
   scanning runs only while a network list is on screen.
 * **`playerctl` not installed.** Media keys are bound to the shell's own MPRIS
   `GlobalShortcut`s, so there is no extra package and no process spawn per press.
+* **`nmcli` and `bluetoothctl` are not called either.** Joining a Wi-Fi network,
+  including handing over the passphrase, goes through `WifiNetwork.connectWithPsk()`,
+  and pairing goes through `BluetoothDevice.pair()` — both native Quickshell APIs
+  over D-Bus. A passphrase must never be interpolated into a command line, and
+  once the join path is native there is no reason for the rest to shell out.
+* **A BlueZ pairing agent is required, and it costs numeric comparison.** BlueZ
+  will not *bond* without an agent registered. With none, pairing still appears
+  to work and then evaporates. From an HCI trace of a real attempt (`btmon`,
+  Galaxy Buds2):
+
+  ```
+  IO Capability Request Reply → Authentication: No Bonding - MITM not required (0x00)
+  Simple Pairing Complete    → Status: Success
+  Auth Complete              → Status: Success
+  Encryption Change          → Status: Success
+  MGMT New Link Key          → Store hint: No (0x00)
+  ```
+
+  Every step succeeded, and then the kernel was told not to keep the link key.
+  The device paired, worked for a few seconds and was forgotten — which is what
+  "connects, then drops" looks like from the outside. A second device, a phone,
+  failed earlier at `Authentication Failed`: it wanted a numeric comparison and
+  there was nothing to answer with. One cause, two symptoms.
+
+  Quickshell exposes `pair()`/`cancelPair()` but no passkey callback, and only
+  consumes D-Bus — `DBusMenu` is the single D-Bus type in its whole type
+  registry — so the shell cannot be the agent itself. `neobrix-bt-agent.service`
+  runs `bt-agent --capability=NoInputNoOutput` instead.
+
+  **What that capability costs:** `NoInputNoOutput` means Just Works pairing —
+  the agent accepts without displaying a code to compare, so pairing carries no
+  MITM protection. **The mitigation is `Pairable=false`:** BlueZ refuses pairing
+  requests that arrive unprompted, so the only bond this agent can accept is one
+  started from the connectivity panel seconds earlier. Making the adapter
+  pairable or discoverable removes that protection and leaves an agent that
+  accepts whatever asks. A capability of `DisplayYesNo` would restore the
+  comparison, but only alongside a confirmation dialog in the shell and an agent
+  that can reach it — a separate feature, not a config change.
+
+  The unit is skipped entirely (`ConditionPathExistsGlob=/sys/class/bluetooth/hci*`)
+  on a machine with no adapter, so a desktop or a VM never starts a process that
+  could only fail. `bt-agent` ignores SIGTERM, so the unit sets
+  `KillSignal=SIGINT`; without it every restart waited out `TimeoutStopSec` and
+  was SIGKILLed. Two agents do not conflict — BlueZ registers them per D-Bus
+  client and the last `RequestDefaultAgent` wins — so this does not fight blueman
+  or a GNOME session for the slot.
+* **Bluetooth discovery is bounded by the panel.** `adapter.discovering` is set
+  only while the connectivity tab is on screen and the scan was asked for, and
+  leaving the tab clears the request. Discovery is a radio scan on a laptop; it
+  should not be able to outlive the UI that started it.
 * **Shipped systemd units reused.** `hypridle`, `hyprpolkitagent` and `cliphist`
   all ship correct `WantedBy=graphical-session.target` units; duplicating them in
   this repo would only create two sources of truth. Only `neobrix-shell.service`

@@ -1,0 +1,43 @@
+[Unit]
+Description=Neobrix Bluetooth pairing agent
+Documentation=man:bt-agent(1)
+PartOf=graphical-session.target
+After=graphical-session.target
+# No adapter, no agent. A machine with no Bluetooth hardware — the VM this
+# project was built on, for one — skips this unit entirely rather than starting a
+# process that can only fail and be restarted forever.
+ConditionPathExistsGlob=/sys/class/bluetooth/hci*
+ConditionPathExists=/usr/bin/bt-agent
+# If something else already holds the default-agent slot (blueman, a GNOME
+# session), cap the retries so a losing fight is a few journal lines rather than
+# an endless loop. These belong in [Unit]: systemd ignores them under [Service]
+# and says so.
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+# Why an agent is needed at all: BlueZ will not *bond* without one. With no agent
+# registered, a pairing request is negotiated as "No Bonding", the kernel is told
+# not to store the resulting link key ("Store hint: No" in the HCI trace), and the
+# device is forgotten seconds later. Verified with btmon while pairing earbuds:
+# Simple Pairing Complete, Auth Complete, Encryption enabled — then nothing kept.
+#
+# NoInputNoOutput means Just Works pairing: this agent accepts without a numeric
+# comparison, so pairing carries no MITM protection. The mitigation is that the
+# adapter keeps Pairable=false, so BlueZ refuses pairing requests that arrive
+# unprompted; only a pairing started from the connectivity panel can be accepted.
+# Making the adapter pairable or discoverable removes that protection.
+ExecStart=/usr/bin/bt-agent --capability=NoInputNoOutput
+Restart=on-failure
+RestartSec=2
+# bt-agent ignores SIGTERM: with the default signal every stop waited out
+# TimeoutStopSec and was SIGKILLed, logging "Failed with result 'timeout'" on
+# each restart. It exits cleanly on SIGINT, which also lets it unregister itself
+# from BlueZ on the way out.
+KillSignal=SIGINT
+Slice=session.slice
+TimeoutStopSec=5sec
+
+[Install]
+WantedBy=graphical-session.target

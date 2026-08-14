@@ -240,6 +240,7 @@ if (( ENABLE )); then
     # WantedBy=graphical-session.target, so UWSM starts them at login.
     info "enabling session units"
     run systemctl --user enable neobrix-shell.service neobrix-session.target \
+        neobrix-bt-agent.service \
         hypridle.service hyprpolkitagent.service cliphist.service
 
     # hyprpaper is deliberately not used — the shell draws the wallpaper. Disable it

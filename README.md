@@ -79,7 +79,7 @@ In [`docs/screenshots/`](docs/screenshots). Regenerate with
 | ![control center](docs/screenshots/control-center.png) | ![calendar](docs/screenshots/calendar.png) |
 | **Control center** — audio, media, specs, resources; connectivity is its own tab | **Calendar** — clock, date, month navigation |
 | ![connectivity](docs/screenshots/connectivity.png) | ![notifications](docs/screenshots/notifications.png) |
-| **Connectivity** — wired link, Wi-Fi and Bluetooth, each list scrolling in its own card. Network names and the address are covered by blocks in this screenshot, not by the shell | **Notification centre** — history, do-not-disturb, clear all |
+| **Connectivity** — wired link, Wi-Fi and Bluetooth. Joining a secured network opens a passphrase field in the row, as shown. Network names and the address are covered by blocks in this screenshot, not by the shell | **Notification centre** — history, do-not-disturb, clear all |
 | ![dusk](docs/screenshots/dusk.png) | ![lock](docs/screenshots/lock.png) |
 | **Neobrix Dark** — the same panel in the `dusk` palette | **Lock screen** — hyprlock, themed from the same palette |
 | ![cursor dawn](docs/screenshots/cursor-dawn.png) | ![cursor dusk](docs/screenshots/cursor-dusk.png) |
@@ -369,7 +369,8 @@ Everything is in the CachyOS/Arch repositories — no AUR helper required.
 Core: `hyprland` `quickshell` `hyprlock` `hypridle` `hyprpolkitagent` `hyprpicker`
 `uwsm`.
 Services: `pipewire` `pipewire-pulse` `wireplumber` `networkmanager` `bluez`
-`xdg-desktop-portal{,-hyprland,-gtk}` `polkit` `power-profiles-daemon`.
+`bluez-utils` `bluez-tools` (`bt-agent`, without which Bluetooth pairing cannot
+bond) `xdg-desktop-portal{,-hyprland,-gtk}` `polkit` `power-profiles-daemon`.
 Utilities: `wl-clipboard` `cliphist` `grim` `slurp` `satty` `brightnessctl`
 `libnotify` `imagemagick` `librsvg` `python`.
 Look: `ttf-jetbrains-mono-nerd` `papirus-icon-theme` `adw-gtk-theme` `qt5ct`
@@ -505,26 +506,38 @@ The dotfiles are written to run unchanged on real hardware:
   ```
 * Touchpad settings, gestures and brightness keys appear automatically once that
   hardware exists — the config probes for it rather than assuming.
-* **Joining a Wi-Fi network no longer needs a terminal.** Clicking a secured
-  network with no saved profile opens a passphrase field in the row itself and
-  hands what you type to `WifiNetwork.connectWithPsk()`; a saved network connects
-  straight away, because NetworkManager already holds its secret. Failures report
-  NetworkManager's own reason in the row — a wrong passphrase reads *"Secrets were
-  required but not provided"* rather than failing silently, and the field reopens
-  so you can try again. Per-network connect, disconnect and forget live behind the
-  row's `…` button.
+* **Wi-Fi and Bluetooth are both driven from the connectivity tab**, with no
+  terminal step. Clicking a secured network with no saved profile opens a
+  passphrase field in the row itself and hands what you type to
+  `WifiNetwork.connectWithPsk()`; a saved network connects straight away, because
+  NetworkManager already holds its secret. Failures report NetworkManager's own
+  reason in the row — a wrong passphrase reads *"Secrets were required but not
+  provided"* rather than failing silently. Per-network connect, disconnect and
+  forget live behind the row's `…` button.
 
-  The passphrase is never written anywhere, never logged, and never passed through
-  a shell: it goes from the field to NetworkManager over D-Bus and the field is
-  cleared the moment it is submitted.
+  The passphrase is never written anywhere, never logged, and never passed
+  through a shell: it goes from the field to NetworkManager over D-Bus and the
+  field is cleared the moment it is submitted.
 
-* **Bluetooth scans, pairs, connects, trusts, forgets and reports battery from
-  the same tab.** Paired devices are listed above what a scan finds; unnamed
-  advertisers are counted rather than listed, because a room full of anonymous
-  beacons is how a Pair press lands on the wrong row. Discovery is opt-in and
-  stops when you leave the tab, so a scan never runs on battery in the
-  background.
+  Bluetooth scans, pairs, connects, trusts, forgets and reports battery from the
+  same tab. Discovery is opt-in and stops when you leave the tab, so a scan never
+  runs on battery in the background.
 
+  **Pairing needs a BlueZ agent, and Neobrix ships one.** BlueZ will not bond
+  without an agent: with none, a device pairs, works for seconds and is
+  forgotten, because the link key is never stored.
+  `neobrix-bt-agent.service` (`bt-agent`, from `bluez-tools`) fills that role and
+  is enabled by `deploy.sh`; the unit is skipped automatically on a machine with
+  no adapter.
+
+  **Read this before deploying it elsewhere:** the agent runs with
+  `NoInputNoOutput`, which means Just Works pairing — it accepts without showing
+  a code to compare, so pairing carries **no MITM protection**. What keeps that
+  safe is the adapter staying `Pairable=false`, which makes BlueZ refuse pairing
+  requests you did not start; the only bond the agent can accept is one you
+  initiated from the panel moments earlier. If you make the adapter pairable or
+  discoverable, you remove that mitigation. The reasoning, the HCI evidence and
+  the alternative are in [docs/DEVIATIONS.md](docs/DEVIATIONS.md).
 * Closing the lid is handled by logind, not by this config, and hypridle's
   `before_sleep_cmd = loginctl lock-session` means the session locks before it
   suspends.
