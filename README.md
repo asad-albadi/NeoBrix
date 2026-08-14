@@ -380,7 +380,9 @@ cd ~/Projects/neobrix
 configuration — there is never a divergent second copy. Anything it replaces is
 copied to `~/.config-backup/deploy-<timestamp>/` first. It also links
 `scripts/*` into `~/.local/bin`, installs and enables the systemd user units,
-generates the wallpapers, and points the XDG browser handlers at Zen.
+generates the wallpapers, points the XDG browser handlers at Zen, and themes Zen
+itself — the last of these is skipped with a note if Zen has never been started,
+since the profile it writes into does not exist until then.
 
 Then log out and back in. To apply most of it without logging out:
 

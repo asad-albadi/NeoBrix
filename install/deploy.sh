@@ -285,6 +285,26 @@ if command -v zen-browser >/dev/null && [[ -f /usr/share/applications/zen.deskto
     step "$(xdg-mime query default x-scheme-handler/https) handles https"
 fi
 
+# ── Zen Browser theming ──────────────────────────────────────────────────────
+# Generated into the profile rather than linked from the repo: the profile
+# directory name is machine-specific and Zen rewrites prefs.js itself. Both
+# palettes go into one stylesheet gated on prefers-color-scheme, so this is not
+# mode-specific and a dawn/dusk switch needs no re-run (neobrix-theme calls it
+# again regardless). The generator splices a marked block, so it is safe to run
+# repeatedly and never clobbers stylesheet rules of your own.
+if command -v zen-browser >/dev/null; then
+    if ! command -v python3 >/dev/null; then
+        warn "python3 not found — skipping Zen theming (the generator needs it)"
+    elif [[ -z "$(find "$CFG/zen" -maxdepth 2 -name prefs.js -print -quit 2>/dev/null)" ]]; then
+        # A profile only exists after Zen's first run, and there is nothing to
+        # write into until it does.
+        warn "no Zen profile yet — start Zen once, then: neobrix-generate-zen-theme"
+    else
+        info "theming Zen Browser"
+        run "$REPO/scripts/neobrix-generate-zen-theme"
+    fi
+fi
+
 info "done"
 cat <<'NEXT'
 
