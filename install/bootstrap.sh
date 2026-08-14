@@ -10,14 +10,7 @@
 #  here — if you are reading this before running it, that is the point, and there
 #  is a download-then-inspect form in the README.
 #
-#      --yes           non-interactive: safe defaults, removes nothing
-#      --no-packages   skip pacman, only link configuration
-#      --greeter       also STAGE the login screen: writes /etc/greetd and a recovery
-#                      file, but never replaces config.toml or enables greetd. The
-#                      switch itself stays a manual step, printed at the end.
-#      --dir <path>    where to clone (default ~/Projects/neobrix, or $NEOBRIX_DIR)
-#      --uninstall     undo: restore backups, disable units, report the rest
-#      --help
+#  Run with --help for the flags.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -37,8 +30,37 @@ warn() { printf '%s==>%s %s\n' "$c_warn" "$c_off" "$*"; }
 err()  { printf '%s==>%s %s\n' "$c_err" "$c_off" "$*" >&2; }
 step() { printf '  %s·%s %s\n' "$c_dim" "$c_off" "$*"; }
 
-# The header above is the help text; keep this range covering it.
-usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
+# Embedded rather than sliced out of this file with sed: run as
+# `curl … | bash`, $0 is "bash", so reading "$0" fails with "sed: can't read
+# bash" and --help printed nothing at all in the one invocation the README leads
+# with. Embedding also decouples the text from the header's line count, which is
+# the other way this broke — a hardcoded range silently truncating as the header
+# grew.
+usage() {
+    cat <<'USAGE'
+Neobrix bootstrap — install a Neobrix desktop on CachyOS or Arch.
+
+  curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bootstrap.sh | bash
+
+Checks the machine, clones the repository, and hands off to install/packages.sh
+and install/deploy.sh, which do the real work and are worth reading first.
+
+  --yes           non-interactive: safe defaults, and removes nothing
+  --no-packages   skip pacman; only link configuration
+  --greeter       also STAGE the login screen: writes /etc/greetd and a recovery
+                  file, but never replaces config.toml and never enables greetd.
+                  Activation is a separate, interactive-only step.
+  --dir <path>    where to clone (default ~/Projects/neobrix, or $NEOBRIX_DIR)
+  --uninstall     undo: restore backups, disable the units, report the rest
+  --help          this text
+
+Piped, flags must be handed past bash itself, or bash takes them as its own:
+
+  curl -fsSL .../install/bootstrap.sh | bash -s -- --greeter --dir ~/src/neobrix
+
+Environment: NEOBRIX_DIR, NEOBRIX_REPO, NEOBRIX_BRANCH
+USAGE
+}
 
 # Which step we are on, so a failure says where rather than just exiting.
 STEP="argument parsing"
