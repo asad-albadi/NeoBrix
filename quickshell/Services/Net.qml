@@ -103,21 +103,34 @@ Singleton {
         return DeviceType.toString(primary.type);
     }
 
+    // WifiNetwork.signalStrength is already 0..1 — it is declared `double` in
+    // Quickshell's network.qmltypes, not a percentage. This used to divide by
+    // 100 as well, which put every real signal under 0.01 and so pinned `icon`
+    // to the weakest glyph for the entire life of a Wi-Fi connection, in the bar
+    // as well as in the panels.
     readonly property real signalStrength: {
         if (!primary || primary.type !== DeviceType.Wifi || !primary.networks) return 0;
         for (const n of primary.networks.values)
-            if (n.connected) return n.signalStrength / 100;
+            if (n.connected) return n.signalStrength;
         return 0;
     }
 
-    readonly property string icon: {
-        if (!connected) return "󰤭";
-        if (primary.type === DeviceType.Ethernet) return "󰈁";
-        const s = signalStrength;
+    // Bars and percentage for an arbitrary 0..1 strength. Exposed because the
+    // connectivity tab needs them per network in its list, and the thresholds
+    // should exist once rather than once per consumer.
+    function glyphFor(strength) {
+        const s = strength || 0;
         if (s > 0.75) return "󰤨";
         if (s > 0.5) return "󰤥";
         if (s > 0.25) return "󰤢";
         return "󰤟";
+    }
+    function percentFor(strength) { return Math.round((strength || 0) * 100); }
+
+    readonly property string icon: {
+        if (!connected) return "󰤭";
+        if (primary.type === DeviceType.Ethernet) return "󰈁";
+        return glyphFor(signalStrength);
     }
 
     readonly property bool wifiEnabled: Networking.wifiEnabled
