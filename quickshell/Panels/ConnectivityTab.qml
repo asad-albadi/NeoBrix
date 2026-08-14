@@ -15,6 +15,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Networking
+import Quickshell.Bluetooth
 import qs.Theme
 import qs.Components
 import qs.Services
@@ -53,7 +54,12 @@ Item {
         root.frozenNetworks !== null ? root.frozenNetworks : root.sortedNetworks()
     onEditingChanged: root.frozenNetworks = root.editing ? root.sortedNetworks() : null
 
-    Component.onDestruction: if (root.scanning) Net.endScan();
+    // Both radios are torn down here: QML allows only one handler per signal, so
+    // the Wi-Fi scan counter and the Bluetooth discovery flag share it.
+    Component.onDestruction: {
+        if (root.scanning) Net.endScan();
+        if (Bt.available && Bt.discovering) Bt.setDiscovering(false);
+    }
 
     // ── security helpers ────────────────────────────────────────────────────
     // Owe is opportunistic ("enhanced open") encryption with no passphrase, so
@@ -62,6 +68,64 @@ Item {
         return sec !== WifiSecurityType.Open
             && sec !== WifiSecurityType.Owe
             && sec !== WifiSecurityType.Unknown;
+    }
+
+    // ── bluetooth discovery ─────────────────────────────────────────────────
+    // Discovery is a radio scan and this is a laptop, so it is opt-in *and*
+    // bounded by the tab being on screen: leaving the tab stops it and clears
+    // the request, so reopening the panel never resumes a scan behind your back.
+    property bool scanRequested: false
+
+    readonly property bool discoverWanted:
+        root.active && Bt.available && Bt.enabled && root.scanRequested
+    onDiscoverWantedChanged: Bt.setDiscovering(root.discoverWanted)
+    onActiveChanged: if (!root.active) root.scanRequested = false;
+
+    // Bt.devices is deliberately the paired set, so the full adapter list is
+    // read here to separate "known" from "just found".
+    readonly property var adapterDevices:
+        Bt.adapter && Bt.adapter.devices ? Bt.adapter.devices.values : []
+    readonly property var pairedDevices: adapterDevices
+        .filter(d => d.paired || d.bonded)
+        .sort((a, b) => (b.connected ? 1 : 0) - (a.connected ? 1 : 0))
+    // A scan in a populated room is mostly anonymous BLE beacons — seven of them
+    // here, all rendering as near-identical rows, which is how a Pair press
+    // landed on a beacon and came back "Authentication Canceled". Nothing you
+    // want to pair advertises without a name, so unnamed devices are counted
+    // rather than listed.
+    function btNamed(dev) { return !!(dev && (dev.deviceName || dev.name)); }
+
+    readonly property var discoveredDevices: adapterDevices
+        .filter(d => !(d.paired || d.bonded) && root.btNamed(d))
+        .sort((a, b) => (root.btLabel(a) < root.btLabel(b) ? -1
+                       : root.btLabel(a) > root.btLabel(b) ? 1 : 0))
+
+    readonly property int unnamedNearby: adapterDevices
+        .filter(d => !(d.paired || d.bonded) && !root.btNamed(d)).length
+
+    // BlueZ leaves Name unset until it resolves one, so an unnamed advertiser
+    // would otherwise render as a blank row.
+    function btLabel(dev) {
+        if (!dev) return "";
+        return dev.deviceName || dev.name || dev.address;
+    }
+
+    // BlueZ reports a freedesktop icon name; map the families that matter to
+    // glyphs and fall back to the generic Bluetooth mark.
+    function btGlyph(icon) {
+        const i = icon || "";
+        if (i.indexOf("headset") !== -1 || i.indexOf("headphone") !== -1) return "󰋋";
+        if (i.indexOf("speaker") !== -1 || i.indexOf("audio") !== -1)     return "󰓃";
+        if (i.indexOf("phone") !== -1)                                    return "󰄜";
+        if (i.indexOf("computer") !== -1 || i.indexOf("laptop") !== -1)   return "󰇄";
+        if (i.indexOf("keyboard") !== -1)                                 return "󰌌";
+        if (i.indexOf("mouse") !== -1 || i.indexOf("pointing") !== -1)    return "󰦋";
+        if (i.indexOf("gaming") !== -1 || i.indexOf("joystick") !== -1)   return "󰊗";
+        if (i.indexOf("printer") !== -1)                                  return "󰐪";
+        if (i.indexOf("camera") !== -1)                                   return "󰄄";
+        if (i.indexOf("watch") !== -1)                                    return "󱑈";
+        if (i.indexOf("display") !== -1 || i.indexOf("tv") !== -1)        return "󰍹";
+        return "󰂯";
     }
 
     // Bars and percentages come from Net.glyphFor/Net.percentFor, so the 0..1
@@ -610,6 +674,18 @@ Item {
 
                         SectionHeader { text: "BLUETOOTH"; icon: Bt.icon; Layout.fillWidth: true }
 
+                        BrixButton {
+                            visible: Bt.enabled
+                            text: Bt.discovering ? "Stop" : "Scan"
+                            icon: Bt.discovering ? "󰄮" : "󰐷"
+                            fontSize: 8
+                            vPadding: 2
+                            active: Bt.discovering
+                            activeAccent: Theme.info
+                            accent: Theme.surfaceAlt
+                            onClicked: root.scanRequested = !root.scanRequested
+                        }
+
                         BrixToggle {
                             checked: Bt.enabled
                             accent: Theme.info
@@ -619,114 +695,83 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: Bt.statusText + (Bt.discovering ? " · discovering" : "")
+                        text: {
+                            if (!Bt.enabled) return "Adapter off";
+                            const parts = [Bt.statusText];
+                            if (Bt.discovering) parts.push("scanning");
+                            if (root.discoveredDevices.length > 0)
+                                parts.push(root.discoveredDevices.length + " nearby");
+                            if (root.unnamedNearby > 0)
+                                parts.push(root.unnamedNearby + " unnamed hidden");
+                            return parts.join(" · ");
+                        }
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
                         font.pixelSize: 8
                         color: Theme.foregroundDim
                     }
 
+                    // Paired and discovered share one scroll area, so a long
+                    // nearby list cannot push the paired devices out of reach.
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        visible: Bt.enabled && Bt.devices.length > 0
+                        visible: Bt.enabled
+                                 && (root.pairedDevices.length > 0 || root.discoveredDevices.length > 0)
                         spacing: Theme.spaceXs
 
-                        ListView {
-                            id: btList
+                        Flickable {
+                            id: btFlick
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            model: Bt.enabled ? Bt.devices : []
                             clip: true
-                            spacing: 2
+                            contentWidth: width
+                            contentHeight: btColumn.implicitHeight
                             boundsBehavior: Flickable.StopAtBounds
 
-                            delegate: Item {
-                                id: btRow
-                                required property var modelData
-                                width: ListView.view.width
-                                height: 34
+                            ColumnLayout {
+                                id: btColumn
+                                width: btFlick.width
+                                spacing: 2
 
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: Theme.radiusXs
-                                    color: btRow.modelData.connected ? Theme.info : "transparent"
+                                SectionHeader {
+                                    visible: root.pairedDevices.length > 0
+                                    text: "PAIRED"
+                                    Layout.fillWidth: true
                                 }
 
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.spaceXs
-                                    anchors.rightMargin: Theme.spaceXs
-                                    spacing: Theme.spaceXs
+                                Repeater {
+                                    model: root.pairedDevices
+                                    delegate: BtRow { required property var modelData; dev: modelData }
+                                }
 
-                                    Text {
-                                        text: btRow.modelData.connected ? "󰂱" : "󰂯"
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: Theme.fontMd
-                                        color: btRow.modelData.connected
-                                               ? Theme.textOn(Theme.info) : Theme.foreground
-                                    }
+                                SectionHeader {
+                                    visible: root.discoveredDevices.length > 0
+                                    text: "NEARBY"
+                                    Layout.fillWidth: true
+                                }
 
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: -2
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: btRow.modelData.deviceName
-                                            elide: Text.ElideRight
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: Theme.fontSm
-                                            font.weight: Theme.weightBold
-                                            color: btRow.modelData.connected
-                                                   ? Theme.textOn(Theme.info) : Theme.foreground
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: {
-                                                const parts = [];
-                                                if (btRow.modelData.pairing) parts.push("pairing");
-                                                else if (btRow.modelData.connected) parts.push("connected");
-                                                else if (btRow.modelData.paired || btRow.modelData.bonded) parts.push("paired");
-                                                if (btRow.modelData.batteryAvailable)
-                                                    parts.push(Math.round(btRow.modelData.battery * 100) + "%");
-                                                return parts.join(" · ");
-                                            }
-                                            elide: Text.ElideRight
-                                            font.family: Theme.fontFamily
-                                            font.pixelSize: 8
-                                            color: btRow.modelData.connected
-                                                   ? Theme.textOn(Theme.info) : Theme.foregroundDim
-                                        }
-                                    }
-
-                                    BrixButton {
-                                        text: btRow.modelData.connected ? "Disconnect" : "Connect"
-                                        fontSize: 8
-                                        vPadding: 2
-                                        accent: btRow.modelData.connected ? Theme.surface : Theme.surfaceAlt
-                                        onClicked: {
-                                            if (btRow.modelData.connected) btRow.modelData.disconnect();
-                                            else btRow.modelData.connect();
-                                        }
-                                    }
+                                Repeater {
+                                    model: root.discoveredDevices
+                                    delegate: BtRow { required property var modelData; dev: modelData }
                                 }
                             }
                         }
 
-                        ScrollTrack { list: btList; Layout.fillHeight: true }
+                        ScrollTrack { list: btFlick; Layout.fillHeight: true }
                     }
 
-                    // Paired devices are what this list shows; pairing itself is
-                    // not in the shell, so say where it happens rather than
-                    // leaving an empty box.
                     Placeholder {
-                        visible: !Bt.enabled || Bt.devices.length === 0
+                        visible: !Bt.enabled
+                                 || (root.pairedDevices.length === 0 && root.discoveredDevices.length === 0)
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         glyph: Bt.enabled ? "󰂯" : "󰂲"
-                        label: Bt.enabled ? "no paired devices" : "adapter off"
-                        hint: Bt.enabled ? "pair once with bluetoothctl" : ""
+                        label: !Bt.enabled ? "adapter off"
+                             : Bt.discovering ? "scanning…" : "no devices"
+                        hint: !Bt.enabled ? ""
+                            : Bt.discovering ? "put the device in pairing mode"
+                            : "press Scan to look for devices nearby"
                     }
                 }
             }
@@ -768,6 +813,214 @@ Item {
     }
 
     // ── local helper components ─────────────────────────────────────────────
+    // One Bluetooth device: primary action inline, the rest behind the dots so
+    // a row stays a row. Everything here is a BlueZ method on the device object
+    // itself — no bluetoothctl, no process spawn.
+    component BtRow: Item {
+        id: btRow
+        property var dev: null
+
+        readonly property bool isPaired: btRow.dev && (btRow.dev.paired || btRow.dev.bonded)
+        property bool showActions: false
+
+        // Quickshell logs BlueZ's pairing error but exposes no signal carrying
+        // it, so failure is inferred from the state it leaves behind: `pairing`
+        // dropped without `paired` coming up. Without this the attempt failed
+        // silently in the UI and the reason only reached the journal.
+        property bool pairAttempted: false
+        property bool pairFailed: false
+
+        Connections {
+            target: btRow.dev
+            function onPairingChanged() {
+                if (!btRow.dev) return;
+                if (btRow.dev.pairing) {
+                    btRow.pairAttempted = true;
+                    btRow.pairFailed = false;
+                } else if (btRow.pairAttempted && !btRow.isPaired) {
+                    btRow.pairFailed = true;
+                }
+            }
+            function onPairedChanged() {
+                if (btRow.isPaired) {
+                    btRow.pairFailed = false;
+                    btRow.pairAttempted = false;
+                }
+            }
+        }
+
+        Layout.fillWidth: true
+        implicitHeight: 34 + (btRow.showActions ? 30 : 0)
+
+        Connections {
+            target: root
+            function onActiveChanged() { if (!root.active) btRow.showActions = false; }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: Theme.radiusXs
+            color: btRow.dev && btRow.dev.connected ? Theme.info
+                 : btRow.showActions ? Theme.surfaceDeep
+                 : btMouse.containsMouse ? Theme.surfaceDeep : "transparent"
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.spaceXs
+            anchors.rightMargin: Theme.spaceXs
+            spacing: 0
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 34
+                spacing: Theme.spaceXs
+
+                Text {
+                    text: root.btGlyph(btRow.dev ? btRow.dev.icon : "")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontMd
+                    color: btRow.dev && btRow.dev.connected
+                           ? Theme.textOn(Theme.info) : Theme.foreground
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: -2
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.btLabel(btRow.dev)
+                        elide: Text.ElideRight
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSm
+                        font.weight: Theme.weightBold
+                        color: btRow.dev && btRow.dev.connected
+                               ? Theme.textOn(Theme.info) : Theme.foreground
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: {
+                            if (!btRow.dev) return "";
+                            if (btRow.pairFailed)
+                                return "pairing failed — check it is in pairing mode, or Forget "
+                                     + "it and rescan; a PIN or number-match device needs "
+                                     + "bluetoothctl once";
+                            const parts = [BluetoothDeviceState.toString(btRow.dev.state).toLowerCase()];
+                            // battery is 0..1, like signalStrength: BlueZ
+                            // reported 99 for a headset while this property read
+                            // 0.99, checked side by side.
+                            if (btRow.dev.batteryAvailable)
+                                parts.push("battery " + Math.round(btRow.dev.battery * 100) + "%");
+                            if (btRow.dev.trusted) parts.push("trusted");
+                            return parts.join(" · ");
+                        }
+                        elide: Text.ElideRight
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 8
+                        font.weight: btRow.pairFailed ? Theme.weightBold : Theme.weightNormal
+                        color: btRow.pairFailed ? Theme.error
+                             : btRow.dev && btRow.dev.connected
+                               ? Theme.textOn(Theme.info) : Theme.foregroundDim
+                    }
+                }
+
+                BrixChip {
+                    visible: btRow.dev && btRow.dev.batteryAvailable
+                    text: btRow.dev ? Math.round(btRow.dev.battery * 100) + "%" : ""
+                    fontSize: 8
+                    accent: Theme.secondary
+                }
+
+                // Pairing is cancellable while it is in flight, which matters
+                // when the other end is waiting on a confirmation nothing here
+                // can answer.
+                BrixButton {
+                    visible: btRow.dev && btRow.dev.pairing
+                    text: "Cancel"
+                    fontSize: 8
+                    vPadding: 2
+                    accent: Theme.warning
+                    onClicked: btRow.dev.cancelPair()
+                }
+                BrixButton {
+                    visible: btRow.dev && !btRow.dev.pairing && !btRow.isPaired
+                    text: "Pair"
+                    fontSize: 8
+                    vPadding: 2
+                    accent: Theme.primary
+                    onClicked: btRow.dev.pair()
+                }
+                BrixButton {
+                    visible: btRow.dev && !btRow.dev.pairing && btRow.isPaired
+                    text: btRow.dev && btRow.dev.connected ? "Disconnect" : "Connect"
+                    fontSize: 8
+                    vPadding: 2
+                    accent: btRow.dev && btRow.dev.connected ? Theme.surface : Theme.surfaceAlt
+                    onClicked: {
+                        if (btRow.dev.connected) btRow.dev.disconnect();
+                        else btRow.dev.connect();
+                    }
+                }
+
+                BrixIconButton {
+                    // Not just for paired devices: BlueZ keeps an entry after a
+                    // device stops advertising, and paging a stale address fails
+                    // with "Page Timeout" until the entry is removed. Forget has
+                    // to be reachable for those.
+                    icon: "󰇘"
+                    tooltip: "Actions"
+                    size: 20
+                    accent: "transparent"
+                    iconColor: btRow.dev && btRow.dev.connected
+                               ? Theme.textOn(Theme.info) : Theme.foregroundDim
+                    onClicked: btRow.showActions = !btRow.showActions
+                }
+            }
+
+            RowLayout {
+                visible: btRow.showActions
+                Layout.fillWidth: true
+                Layout.preferredHeight: 28
+                spacing: Theme.spaceXs
+
+                Text {
+                    text: "Trust"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 8
+                    font.weight: Theme.weightBold
+                    color: btRow.dev && btRow.dev.connected
+                           ? Theme.textOn(Theme.info) : Theme.foregroundDim
+                }
+                BrixToggle {
+                    checked: btRow.dev ? btRow.dev.trusted : false
+                    accent: Theme.info
+                    onToggled: on => { if (btRow.dev) btRow.dev.trusted = on; }
+                }
+
+                BrixButton {
+                    text: "Forget"
+                    fontSize: 8
+                    vPadding: 2
+                    accent: Theme.error
+                    onClicked: {
+                        btRow.showActions = false;
+                        btRow.dev.forget();
+                    }
+                }
+                Item { Layout.fillWidth: true }
+            }
+        }
+
+        MouseArea {
+            id: btMouse
+            anchors.fill: parent
+            anchors.bottomMargin: btRow.showActions ? 30 : 0
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+        }
+    }
+
     // Centred empty state, the same shape the notification centre uses for
     // "all caught up" — centred reads as deliberate, where a line of text
     // stranded at the top of a tall box reads as something failing to load.
@@ -816,7 +1069,9 @@ Item {
     // brutalist bar is a rectangle, not a rounded pill.
     component ScrollTrack: Item {
         id: trackRoot
-        property ListView list: null
+        // Flickable, not ListView: the Wi-Fi side is a ListView and the
+        // Bluetooth side a Flickable holding two sections.
+        property Flickable list: null
 
         implicitWidth: 4
         visible: list !== null && list.contentHeight > list.height + 1

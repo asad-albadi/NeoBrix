@@ -518,6 +518,13 @@ The dotfiles are written to run unchanged on real hardware:
   a shell: it goes from the field to NetworkManager over D-Bus and the field is
   cleared the moment it is submitted.
 
+* **Bluetooth scans, pairs, connects, trusts, forgets and reports battery from
+  the same tab.** Paired devices are listed above what a scan finds; unnamed
+  advertisers are counted rather than listed, because a room full of anonymous
+  beacons is how a Pair press lands on the wrong row. Discovery is opt-in and
+  stops when you leave the tab, so a scan never runs on battery in the
+  background.
+
 * Closing the lid is handled by logind, not by this config, and hypridle's
   `before_sleep_cmd = loginctl lock-session` means the session locks before it
   suspends.
