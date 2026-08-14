@@ -487,6 +487,19 @@ The dotfiles are written to run unchanged on real hardware:
 * `hypridle` never suspends by default; add a suspend listener locally if you want
   one.
 
+Three tracked defaults were chosen for a software-rendered guest rather than on
+merit. They are safe everywhere, but real hardware can do better — override them in
+`machine/local.lua`:
+
+| Setting | Tracked value | Why, and what to consider on real hardware |
+|---|---|---|
+| `render.direct_scanout` | `0` | Disabled because a virtualised GPU can present blank frames. On a real GPU set `1` to let fullscreen apps bypass compositing. |
+| `decoration.blur.enabled` | `false` | Primarily a design choice — brutalism is flat — but also a cost the software rasteriser cannot absorb. Enable it locally if you want it. |
+| `input.accel_profile` | `"flat"` | Predictable for a SPICE/virtio pointer, and what CachyOS set. A real mouse is fine with flat; a touchpad usually wants `"adaptive"`. |
+
+Animation speeds are *not* in that list: they are short because brutalism snaps, not
+to save frames, and should stay as they are.
+
 ## Troubleshooting
 
 | Symptom | Check |
