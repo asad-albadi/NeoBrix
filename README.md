@@ -175,6 +175,8 @@ In [`docs/screenshots/`](docs/screenshots). Regenerate with
 | **Cursor** in `dawn` — the editor theme is generated from the same palette | **Cursor** in `dusk` — switching the desktop palette switches the editor |
 | ![fastfetch dawn](docs/screenshots/fastfetch-dawn.png) | ![fastfetch dusk](docs/screenshots/fastfetch-dusk.png) |
 | **Terminal greeting** in `dawn` — grouped `fastfetch` readout | the same greeting in `dusk`, recoloured by the terminal palette |
+| ![dark reader](docs/screenshots/darkreader.png) | |
+| **Dark Reader** — an ordinary website recoloured from the same palette, via the generated settings in [`theming/darkreader/`](theming/darkreader) | |
 
 ## Architecture
 
@@ -400,6 +402,12 @@ regenerates them on a palette switch, but the running browser keeps the old ones
 until it restarts.
 
 ### Dark Reader
+
+![Dark Reader rendering GitHub in the Neobrix dusk palette](docs/screenshots/darkreader.png)
+
+*GitHub in Zen with the generated Dark Reader settings imported: page background,
+surfaces, borders and links all come from the `dusk` palette, so a site Neobrix
+knows nothing about still matches the desktop around it.*
 
 Dark Reader keeps its configuration in extension storage (IndexedDB inside the
 browser profile) and has no managed-storage support, so nothing can push settings
