@@ -64,9 +64,16 @@ UNIT_CANDIDATES=(
 )
 
 # Whole-desktop packages, offered only as a last, separate question.
+#
+# Meta-packages first, deliberately: pacman refuses to remove a package that
+# another installed package requires. Asking about `noctalia` before
+# `cachyos-hypr-noctalia` produced exactly that — "removing noctalia breaks
+# dependency 'noctalia' required by cachyos-hypr-noctalia" — and left the answer
+# the user had already given unfulfilled. The retry pass below covers any
+# ordering this list still gets wrong.
 PKG_CANDIDATES=(
-    noctalia cachyos-hypr-noctalia caelestia-shell
-    ml4w-hyprland ml4w-hyprland-starter hyprpanel
+    cachyos-hypr-noctalia ml4w-hyprland-starter
+    noctalia caelestia-shell ml4w-hyprland hyprpanel
 )
 
 backup_dir_made=0
@@ -201,19 +208,42 @@ if (( ${#found_pkgs[@]} )); then
     echo
     warn "package removal is not reversible the way disabling a unit is."
     warn "Disabling the units above is usually enough; you can skip this entirely."
+    deferred=()
     for p in "${found_pkgs[@]}"; do
         if confirm no "Uninstall the package $p? (pacman -R, no dependency sweep)"; then
             ensure_backup
-            if sudo pacman -R --noconfirm "$p"; then
+            if out="$(sudo pacman -R --noconfirm "$p" 2>&1)"; then
                 printf '%s\n' "$p" >> "$BACKUP/removed-packages.txt"
                 step "removed $p"
             else
-                warn "pacman refused to remove $p — left installed"
+                # Usually "breaks dependency": something else still needs it, and
+                # that something may be removed later in this same loop. Keep the
+                # answer and retry rather than making the user run this again.
+                printf '%s\n' "$out" | grep -i 'breaks dependency' | head -1 | sed 's/^/      /'
+                warn "could not remove $p yet — will retry once the rest are done"
+                deferred+=("$p")
             fi
         else
             step "kept $p installed"
         fi
     done
+
+    # Second pass: the consent was already given, so this asks nothing.
+    if (( ${#deferred[@]} )); then
+        echo
+        info "retrying the packages that were blocked by a dependency"
+        for p in "${deferred[@]}"; do
+            pacman -Qq "$p" >/dev/null 2>&1 || { step "$p is already gone"; continue; }
+            if out="$(sudo pacman -R --noconfirm "$p" 2>&1)"; then
+                printf '%s\n' "$p" >> "$BACKUP/removed-packages.txt"
+                step "removed $p"
+            else
+                warn "$p is still installed — something outside this list requires it:"
+                printf '%s\n' "$out" | grep -iE 'breaks dependency|error' | head -2 | sed 's/^/      /'
+                step "check with:  pacman -Qi $p   (Required By)"
+            fi
+        done
+    fi
 fi
 
 if [[ -n $greeter_note ]]; then

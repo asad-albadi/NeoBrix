@@ -10,6 +10,7 @@
 #    ./install/deploy.sh --dry-run    print what would happen
 #    ./install/deploy.sh --no-enable  link only, don't touch systemd
 #    ./install/deploy.sh --greeter    also stage the login screen in /etc (sudo)
+#    ./install/deploy.sh --greeter-only   stage only that, skip everything else
 #    ./install/deploy.sh --restore    undo: put the newest backup back
 #
 #  --greeter stages only: it themes the greeter and writes both greetd configs
@@ -33,12 +34,17 @@ DRY=0
 ENABLE=1
 RESTORE=0
 GREETER=0
+GREETER_ONLY=0
 
 for arg in "$@"; do
     case "$arg" in
         --dry-run)   DRY=1 ;;
         --no-enable) ENABLE=0 ;;
         --greeter)   GREETER=1 ;;
+        # For callers that have already deployed — the installer asks about the
+        # login screen after the desktop is in place, and re-running the whole
+        # deploy just to stage /etc/greetd repeated sixty lines of output.
+        --greeter-only) GREETER=1; GREETER_ONLY=1 ;;
         --restore)   RESTORE=1 ;;
         -h|--help)   sed -n '2,20p' "$0"; exit 0 ;;
         *) printf 'unknown option: %s\n' "$arg" >&2; exit 2 ;;
@@ -172,6 +178,110 @@ require_lua_capable_hyprland() {
     fi
     step "Hyprland $version supports the Lua configuration"
 }
+
+# ── login screen ─────────────────────────────────────────────────────────────
+# The one part of this repo that lives outside $HOME, needs root, and can leave a
+# machine with no way to log in. So it is opt-in, and even then it only *stages*:
+# the greeter is themed and both greetd configs are written beside the active one,
+# but config.toml is never replaced and greetd is never enabled. Swapping the
+# active config is a single copy you run yourself, from a TTY, after previewing
+# the result with `regreet --demo` — greeter/RECOVERY has the commands and the
+# rollback.
+stage_greeter() {
+    local etc=/etc/greetd dm
+
+    for cmd in greetd regreet cage; do
+        command -v "$cmd" >/dev/null || {
+            err "the greeter needs $cmd (pacman -S greetd regreet cage)"; return 1; }
+    done
+    command -v sudo >/dev/null || { err "staging the greeter needs sudo to write $etc"; return 1; }
+
+    info "staging the login screen into $etc"
+    warn "this part needs sudo; everything above was user-level"
+
+    # A verbatim copy of whatever was in /etc/greetd before Neobrix, kept in /etc
+    # rather than under $HOME so it is reachable from a TTY as root. Written once:
+    # a second run must not capture the staged state and call it the original.
+    if [[ -d "$etc" ]] && [[ ! -e /etc/greetd.pre-neobrix ]]; then
+        run sudo cp -a "$etc" /etc/greetd.pre-neobrix
+        step "/etc/greetd.pre-neobrix ${c_dim}(verbatim copy of the previous /etc/greetd)${c_off}"
+    elif [[ -e /etc/greetd.pre-neobrix ]]; then
+        step "/etc/greetd.pre-neobrix ${c_dim}(kept)${c_off}"
+    fi
+
+    # Which display manager was enabled, so it can be put back exactly. Also
+    # written once, for the same reason.
+    if [[ ! -e "$etc/PREVIOUS-DISPLAY-MANAGER" ]]; then
+        local prev_dm="none"
+        [[ -L /etc/systemd/system/display-manager.service ]] && \
+            prev_dm="$(basename "$(readlink -f /etc/systemd/system/display-manager.service)")"
+        if (( DRY )); then
+            printf '  %s[dry]%s write %s containing: %s\n' \
+                "$c_dim" "$c_off" "$etc/PREVIOUS-DISPLAY-MANAGER" "$prev_dm"
+        else
+            printf '%s\n' "$prev_dm" | sudo tee "$etc/PREVIOUS-DISPLAY-MANAGER" >/dev/null
+        fi
+        step "$etc/PREVIOUS-DISPLAY-MANAGER ${c_dim}($prev_dm)${c_off}"
+    else
+        step "$etc/PREVIOUS-DISPLAY-MANAGER ${c_dim}(kept — $(cat "$etc/PREVIOUS-DISPLAY-MANAGER" 2>/dev/null))${c_off}"
+    fi
+
+    run sudo install -Dm644 "$REPO/greeter/RECOVERY" "$etc/RECOVERY"
+
+    # The rollback target has to be a config known to work. Whatever is live now
+    # qualifies; if there is nothing there, use the repo's agreety fallback, which
+    # points at a binary greetd itself ships and so cannot go missing. Written
+    # once and then left alone — re-copying it later would overwrite the true
+    # original with the Neobrix config it is meant to roll back from.
+    if [[ -e "$etc/config.toml.pre-regreet" ]]; then
+        step "$etc/config.toml.pre-regreet ${c_dim}(kept — the original)${c_off}"
+    elif [[ -e "$etc/config.toml" ]]; then
+        run sudo cp -a "$etc/config.toml" "$etc/config.toml.pre-regreet"
+        step "rollback: $etc/config.toml.pre-regreet ${c_dim}(your current config)${c_off}"
+    else
+        run sudo install -Dm644 "$REPO/greeter/greetd-config-fallback.toml" \
+            "$etc/config.toml.pre-regreet"
+        step "rollback: $etc/config.toml.pre-regreet ${c_dim}(agreety)${c_off}"
+    fi
+
+    run sudo install -Dm644 "$REPO/greeter/greetd-config.toml" "$etc/config.toml.neobrix-greeter"
+    step "$etc/config.toml.neobrix-greeter ${c_dim}(staged, NOT active)${c_off}"
+
+    # Palette, wallpaper and regreet.toml/css. Root, because /etc and
+    # /usr/share/backgrounds are not writable by the user, and the greeter runs as
+    # the `greeter` user which cannot read $HOME.
+    run sudo "$REPO/scripts/neobrix-generate-greeter"
+
+    if [[ -L /etc/systemd/system/display-manager.service ]]; then
+        dm="$(basename "$(readlink -f /etc/systemd/system/display-manager.service)")"
+        [[ "$dm" == greetd.service ]] || \
+            warn "$dm is the enabled display manager — activating greetd means disabling it first"
+    fi
+
+    cat <<GREETER
+
+  Staged, not active. Preview it without touching greetd — this renders the real
+  UI with no login path involved:
+        regreet --demo -c $etc/regreet.toml -s $etc/regreet.css
+
+  When you are ready to make it the login screen:
+        neobrix greeter enable
+
+  That asks first, refuses unless the rollback is in place (RECOVERY, the agreety
+  fallback, a recorded display manager and a reachable getty), records what it
+  replaces, and takes effect at the next boot without restarting anything. To
+  reverse it: neobrix greeter disable
+
+  Rollback if the greeter ever fails to appear: $etc/RECOVERY
+GREETER
+}
+
+# Staging the greeter and nothing else: everything below is skipped.
+if (( GREETER_ONLY )); then
+    if stage_greeter; then exit 0; fi
+    warn "login screen not staged"
+    exit 1
+fi
 
 info "linking configuration"
 require_lua_capable_hyprland
@@ -313,103 +423,6 @@ if command -v zen-browser >/dev/null; then
         run "$REPO/scripts/neobrix-generate-zen-theme"
     fi
 fi
-
-# ── login screen ─────────────────────────────────────────────────────────────
-# The one part of this repo that lives outside $HOME, needs root, and can leave a
-# machine with no way to log in. So it is opt-in, and even then it only *stages*:
-# the greeter is themed and both greetd configs are written beside the active one,
-# but config.toml is never replaced and greetd is never enabled. Swapping the
-# active config is a single copy you run yourself, from a TTY, after previewing
-# the result with `regreet --demo` — greeter/RECOVERY has the commands and the
-# rollback.
-stage_greeter() {
-    local etc=/etc/greetd dm
-
-    for cmd in greetd regreet cage; do
-        command -v "$cmd" >/dev/null || {
-            err "the greeter needs $cmd (pacman -S greetd regreet cage)"; return 1; }
-    done
-    command -v sudo >/dev/null || { err "staging the greeter needs sudo to write $etc"; return 1; }
-
-    info "staging the login screen into $etc"
-    warn "this part needs sudo; everything above was user-level"
-
-    # A verbatim copy of whatever was in /etc/greetd before Neobrix, kept in /etc
-    # rather than under $HOME so it is reachable from a TTY as root. Written once:
-    # a second run must not capture the staged state and call it the original.
-    if [[ -d "$etc" ]] && [[ ! -e /etc/greetd.pre-neobrix ]]; then
-        run sudo cp -a "$etc" /etc/greetd.pre-neobrix
-        step "/etc/greetd.pre-neobrix ${c_dim}(verbatim copy of the previous /etc/greetd)${c_off}"
-    elif [[ -e /etc/greetd.pre-neobrix ]]; then
-        step "/etc/greetd.pre-neobrix ${c_dim}(kept)${c_off}"
-    fi
-
-    # Which display manager was enabled, so it can be put back exactly. Also
-    # written once, for the same reason.
-    if [[ ! -e "$etc/PREVIOUS-DISPLAY-MANAGER" ]]; then
-        local prev_dm="none"
-        [[ -L /etc/systemd/system/display-manager.service ]] && \
-            prev_dm="$(basename "$(readlink -f /etc/systemd/system/display-manager.service)")"
-        if (( DRY )); then
-            printf '  %s[dry]%s write %s containing: %s\n' \
-                "$c_dim" "$c_off" "$etc/PREVIOUS-DISPLAY-MANAGER" "$prev_dm"
-        else
-            printf '%s\n' "$prev_dm" | sudo tee "$etc/PREVIOUS-DISPLAY-MANAGER" >/dev/null
-        fi
-        step "$etc/PREVIOUS-DISPLAY-MANAGER ${c_dim}($prev_dm)${c_off}"
-    else
-        step "$etc/PREVIOUS-DISPLAY-MANAGER ${c_dim}(kept — $(cat "$etc/PREVIOUS-DISPLAY-MANAGER" 2>/dev/null))${c_off}"
-    fi
-
-    run sudo install -Dm644 "$REPO/greeter/RECOVERY" "$etc/RECOVERY"
-
-    # The rollback target has to be a config known to work. Whatever is live now
-    # qualifies; if there is nothing there, use the repo's agreety fallback, which
-    # points at a binary greetd itself ships and so cannot go missing. Written
-    # once and then left alone — re-copying it later would overwrite the true
-    # original with the Neobrix config it is meant to roll back from.
-    if [[ -e "$etc/config.toml.pre-regreet" ]]; then
-        step "$etc/config.toml.pre-regreet ${c_dim}(kept — the original)${c_off}"
-    elif [[ -e "$etc/config.toml" ]]; then
-        run sudo cp -a "$etc/config.toml" "$etc/config.toml.pre-regreet"
-        step "rollback: $etc/config.toml.pre-regreet ${c_dim}(your current config)${c_off}"
-    else
-        run sudo install -Dm644 "$REPO/greeter/greetd-config-fallback.toml" \
-            "$etc/config.toml.pre-regreet"
-        step "rollback: $etc/config.toml.pre-regreet ${c_dim}(agreety)${c_off}"
-    fi
-
-    run sudo install -Dm644 "$REPO/greeter/greetd-config.toml" "$etc/config.toml.neobrix-greeter"
-    step "$etc/config.toml.neobrix-greeter ${c_dim}(staged, NOT active)${c_off}"
-
-    # Palette, wallpaper and regreet.toml/css. Root, because /etc and
-    # /usr/share/backgrounds are not writable by the user, and the greeter runs as
-    # the `greeter` user which cannot read $HOME.
-    run sudo "$REPO/scripts/neobrix-generate-greeter"
-
-    if [[ -L /etc/systemd/system/display-manager.service ]]; then
-        dm="$(basename "$(readlink -f /etc/systemd/system/display-manager.service)")"
-        [[ "$dm" == greetd.service ]] || \
-            warn "$dm is the enabled display manager — activating greetd means disabling it first"
-    fi
-
-    cat <<GREETER
-
-  Staged, not active. Preview it without touching greetd — this renders the real
-  UI with no login path involved:
-        regreet --demo -c $etc/regreet.toml -s $etc/regreet.css
-
-  When you are ready to make it the login screen:
-        neobrix greeter enable
-
-  That asks first, refuses unless the rollback is in place (RECOVERY, the agreety
-  fallback, a recorded display manager and a reachable getty), records what it
-  replaces, and takes effect at the next boot without restarting anything. To
-  reverse it: neobrix greeter disable
-
-  Rollback if the greeter ever fails to appear: $etc/RECOVERY
-GREETER
-}
 
 if (( GREETER )); then
     stage_greeter || warn "login screen not staged"
