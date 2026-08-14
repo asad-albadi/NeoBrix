@@ -119,11 +119,25 @@ step "  until you replace them with your own."
 if [[ -d $CFG/zen ]]; then
     step "the Zen profile's chrome/neobrix.css and the neobrix block in user.js"
 fi
-if [[ -r /etc/greetd/config.toml ]] && grep -q regreet /etc/greetd/config.toml 2>/dev/null; then
+# If Neobrix is the login screen, leaving greetd enabled with the rest of the
+# desktop gone is the one outcome worth acting on rather than reporting: it would
+# boot to a greeter whose session no longer exists. neobrix-greeter disable is the
+# same code path the installer and the CLI use.
+dm_now=""
+[[ -L /etc/systemd/system/display-manager.service ]] && \
+    dm_now="$(basename "$(readlink -f /etc/systemd/system/display-manager.service)")"
+if [[ $dm_now == greetd.service ]]; then
     echo
-    warn "the login screen is still the Neobrix greeter. This script does not touch"
-    warn "/etc — swapping a greeter blind is how people get locked out. To go back:"
-    step "sudo cp /etc/greetd/config.toml.pre-regreet /etc/greetd/config.toml"
-    step "see /etc/greetd/RECOVERY for the rest, including re-enabling your old display manager"
+    warn "greetd is still this machine's login screen."
+    rec="none recorded"
+    [[ -r /etc/greetd/PREVIOUS-DISPLAY-MANAGER ]] && rec="$(tr -d '[:space:]' < /etc/greetd/PREVIOUS-DISPLAY-MANAGER)"
+    step "recorded rollback target: $rec"
+    if confirm yes "Restore it now (needs sudo; takes effect next boot)?"; then
+        "$REPO/scripts/neobrix-greeter" disable || \
+            warn "could not restore it — see /etc/greetd/RECOVERY before rebooting"
+    else
+        step "left as it is — 'neobrix greeter disable' does it later"
+        step "or read /etc/greetd/RECOVERY"
+    fi
 fi
 step "this clone at $REPO — delete it yourself if you want it gone"

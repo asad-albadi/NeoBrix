@@ -60,8 +60,16 @@ no login path involved:
 Going back to the previous display manager
 ------------------------------------------
 
-Activating greetd means disabling whatever display manager was enabled before.
-`deploy.sh --greeter` records which one that was:
+One command, from a normal session or from a TTY:
+
+    neobrix greeter disable
+
+It restores the agreety config, disables greetd, and re-enables the display
+manager recorded when the greeter was activated — next boot, nothing restarted.
+It refuses if no rollback target was recorded, rather than leaving the machine
+with no login screen at all.
+
+The record it reads:
 
     cat /etc/greetd/PREVIOUS-DISPLAY-MANAGER
 

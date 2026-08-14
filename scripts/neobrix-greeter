@@ -1,0 +1,291 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Make the Neobrix greeter the login screen — or put the old one back.
+#
+#      neobrix-greeter status     what is staged, what is active, what the
+#                                 rollback would be
+#      neobrix-greeter enable     activate it for the NEXT boot (asks first)
+#      neobrix-greeter disable    restore the display manager it replaced
+#
+#  Reached as `neobrix greeter …` too; the installer calls this same script, so
+#  there is one implementation of the dangerous part rather than two.
+#
+#  Not to be confused with neobrix-generate-greeter, which only renders the
+#  palette into /etc/greetd/regreet.{toml,css} and never changes what runs.
+#
+#  Why this is fussier than everything else in the project: if the login screen
+#  does not come up, the machine is unusable without a TTY. So activation
+#
+#    * only ever happens when a human answers a question at a terminal — never
+#      from a pipe, never from --yes, no flag to bypass it;
+#    * refuses unless the rollback is already in place (RECOVERY, the agreety
+#      fallback, a recorded display manager, and a reachable getty);
+#    * takes effect at the next boot only. Restarting greetd would kill the
+#      session you are sitting in.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -uo pipefail
+
+ETC=/etc/greetd
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+
+# One prompt implementation, shared with the installer: reads /dev/tty, never
+# stdin, and refuses to invent an answer when there is no terminal.
+ASSUME_YES=0
+# shellcheck source=../install/lib/ask.sh
+source "$REPO/install/lib/ask.sh"
+
+info() { printf '%s==>%s %s\n' "$c_ok" "$c_off" "$*"; }
+warn() { printf '%s==>%s %s\n' "$c_warn" "$c_off" "$*"; }
+err()  { printf '%s==>%s %s\n' "$c_err" "$c_off" "$*" >&2; }
+step() { printf '  %s·%s %s\n' "$c_dim" "$c_off" "$*"; }
+
+enabled_dm() {
+    [[ -L /etc/systemd/system/display-manager.service ]] || return 0
+    basename "$(readlink -f /etc/systemd/system/display-manager.service)"
+}
+
+recorded_dm() {
+    [[ -r $ETC/PREVIOUS-DISPLAY-MANAGER ]] || return 0
+    tr -d '[:space:]' < "$ETC/PREVIOUS-DISPLAY-MANAGER"
+}
+
+# Is there a way back in if the greeter fails? logind spawns a getty on demand up
+# to NAutoVTs, which is what makes Ctrl+Alt+F2 work independently of any display
+# manager. Without that, or an explicitly enabled getty somewhere other than the
+# VT greetd takes, a failed greeter leaves no way to log in — so activation is
+# refused rather than risked.
+tty_escape() {
+    local n
+    n="$(busctl --system get-property org.freedesktop.login1 /org/freedesktop/login1 \
+            org.freedesktop.login1.Manager NAutoVTs 2>/dev/null | awk '{print $2}')"
+    if [[ -n ${n:-} ]] && (( n >= 2 )); then
+        printf 'logind spawns a getty on demand (NAutoVTs=%s) — Ctrl+Alt+F2 works\n' "$n"
+        return 0
+    fi
+    local other
+    other="$(systemctl list-unit-files 'getty@*' --state=enabled --no-legend 2>/dev/null \
+             | awk '{print $1}' | grep -v '^getty@tty1\.service$' | head -1)"
+    if [[ -n $other ]]; then
+        printf '%s is enabled\n' "$other"
+        return 0
+    fi
+    return 1
+}
+
+# ── status ───────────────────────────────────────────────────────────────────
+cmd_status() {
+    local dm rec esc
+    dm="$(enabled_dm)"; rec="$(recorded_dm)"
+
+    printf '%sgreeter%s\n' "$c_dim" "$c_off"
+    for b in greetd regreet cage; do
+        if command -v "$b" >/dev/null 2>&1; then step "$b present"
+        else step "$b ${c_err}missing${c_off}"; fi
+    done
+
+    [[ -e $ETC/config.toml.neobrix-greeter ]] \
+        && step "staged config present" || step "staged config ${c_err}missing${c_off} (run install/deploy.sh --greeter)"
+    [[ -e $ETC/RECOVERY ]] \
+        && step "RECOVERY present" || step "RECOVERY ${c_err}missing${c_off}"
+    [[ -e $ETC/config.toml.pre-regreet ]] \
+        && step "agreety fallback staged" || step "agreety fallback ${c_err}missing${c_off}"
+
+    if [[ -r $ETC/config.toml ]] && grep -q regreet "$ETC/config.toml" 2>/dev/null; then
+        step "active config: the Neobrix greeter"
+    else
+        step "active config: not Neobrix"
+    fi
+
+    step "display-manager unit: ${dm:-none enabled}"
+    step "rollback target: ${rec:-${c_err}nothing recorded${c_off}}"
+
+    if esc="$(tty_escape)"; then step "TTY escape: $esc"
+    else step "TTY escape: ${c_err}none — activation will be refused${c_off}"; fi
+
+    if [[ ${dm:-} == greetd.service ]]; then
+        info "greetd is the login screen from the next boot on"
+    else
+        info "the Neobrix greeter is not active; 'neobrix greeter enable' asks to activate it"
+    fi
+}
+
+# ── enable ───────────────────────────────────────────────────────────────────
+cmd_enable() {
+    local dm rec esc
+
+    # ── preconditions, all of them, before a single write ────────────────────
+    for b in greetd regreet cage; do
+        command -v "$b" >/dev/null 2>&1 || {
+            err "$b is not installed — refusing to activate a greeter that cannot start"
+            err "install it first:  sudo pacman -S greetd greetd-regreet cage"
+            return 1; }
+    done
+    command -v sudo >/dev/null 2>&1 || { err "sudo is required to write $ETC"; return 1; }
+
+    [[ -e $ETC/config.toml.neobrix-greeter ]] || {
+        err "nothing staged at $ETC/config.toml.neobrix-greeter"
+        err "run:  ./install/deploy.sh --greeter"
+        return 1; }
+    [[ -e $ETC/RECOVERY ]] || {
+        err "$ETC/RECOVERY is missing — that file is how you get back in"
+        err "run:  ./install/deploy.sh --greeter"
+        return 1; }
+    [[ -e $ETC/config.toml.pre-regreet ]] || {
+        err "no agreety fallback staged at $ETC/config.toml.pre-regreet"
+        err "run:  ./install/deploy.sh --greeter"
+        return 1; }
+
+    if ! esc="$(tty_escape)"; then
+        err "no TTY escape on this machine: logind is not set to spawn a getty"
+        err "(NAutoVTs < 2) and no getty is enabled outside tty1."
+        err "If the greeter failed you would have no way to log in, so this"
+        err "refuses. Set NAutoVTs, or enable getty@tty2.service, then re-run."
+        return 1
+    fi
+
+    dm="$(enabled_dm)"
+    if [[ $dm == greetd.service ]]; then
+        info "greetd is already the enabled display manager — nothing to do"
+        return 0
+    fi
+
+    # Preview it first, without touching greetd. Not enforced, because a broken
+    # X/Wayland session may be exactly why you are activating from a TTY.
+    if [[ -z ${NB_TTY:-} ]]; then
+        err "activation needs a terminal to confirm at, and there is none."
+        err "This is deliberate: no pipe and no flag can change the login screen."
+        err "Run 'neobrix greeter enable' from a terminal instead."
+        return 1
+    fi
+
+    echo
+    warn "This changes how you log in, from the next boot."
+    step "the greeter becomes: greetd + ReGreet (staged config)"
+    step "disabled for next boot: ${dm:-nothing is currently enabled}"
+    step "rollback if it fails: Ctrl+Alt+F2 for a getty, then follow $ETC/RECOVERY"
+    step "escape route confirmed: $esc"
+    step "preview it first, without activating:  regreet --demo -c $ETC/regreet.toml -s $ETC/regreet.css"
+    echo
+    confirm no "Activate the Neobrix login screen for the next boot?" || {
+        info "left alone. When you want it later:  neobrix greeter enable"
+        return 0
+    }
+
+    # ── 1. keep the config that is live right now ───────────────────────────
+    if [[ -e $ETC/config.toml ]]; then
+        sudo cp -a "$ETC/config.toml" "$ETC/config.toml.before-activate-$STAMP" || return 1
+        step "saved the live config as config.toml.before-activate-$STAMP"
+    fi
+
+    # ── 2. record the rollback BEFORE disabling anything ────────────────────
+    rec="$(recorded_dm)"
+    if [[ -n ${dm:-} && ${dm:-} != greetd.service ]]; then
+        if [[ $rec != "$dm" ]]; then
+            printf '%s\n' "$dm" | sudo tee "$ETC/PREVIOUS-DISPLAY-MANAGER" >/dev/null || return 1
+            step "recorded rollback target: $dm"
+        else
+            step "rollback target already recorded: $rec"
+        fi
+    elif [[ -z ${rec:-} ]]; then
+        # No display manager enabled at all: record that fact explicitly so
+        # `disable` does not have to guess later.
+        printf 'none\n' | sudo tee "$ETC/PREVIOUS-DISPLAY-MANAGER" >/dev/null || return 1
+        step "recorded rollback target: none (no display manager was enabled)"
+    fi
+
+    # ── 3. the active config ────────────────────────────────────────────────
+    sudo cp "$ETC/config.toml.neobrix-greeter" "$ETC/config.toml" || return 1
+    step "wrote $ETC/config.toml"
+
+    # ── 4. swap the units, next boot only ───────────────────────────────────
+    if [[ -n ${dm:-} ]]; then
+        sudo systemctl disable "$dm" >/dev/null 2>&1 && step "disabled $dm" \
+            || { err "could not disable $dm — rolling the config back"; \
+                 sudo cp "$ETC/config.toml.pre-regreet" "$ETC/config.toml"; return 1; }
+    fi
+    sudo systemctl enable greetd.service >/dev/null 2>&1 && step "enabled greetd.service" || {
+        err "could not enable greetd — restoring $dm and the previous config"
+        sudo cp "$ETC/config.toml.pre-regreet" "$ETC/config.toml"
+        [[ -n ${dm:-} ]] && sudo systemctl enable "$dm" >/dev/null 2>&1
+        return 1; }
+
+    # ── 5/6. nothing is restarted, and the way back is on screen ────────────
+    echo
+    info "active from the NEXT boot. Nothing was restarted: greetd taking over now"
+    info "would end this session."
+    echo
+    warn "Before you reboot, read this once:"
+    step "keep Ctrl+Alt+F2 in mind — that is a getty, independent of any greeter"
+    step "if the greeter does not appear, log in there and run:"
+    step "    sudo cp $ETC/config.toml.pre-regreet $ETC/config.toml"
+    step "    sudo systemctl restart greetd        # text-mode agreety login"
+    step "to put your old login screen back instead:"
+    step "    neobrix greeter disable"
+    step "the full version of all of this: $ETC/RECOVERY"
+}
+
+# ── disable ──────────────────────────────────────────────────────────────────
+cmd_disable() {
+    local rec dm
+    rec="$(recorded_dm)"
+    dm="$(enabled_dm)"
+
+    command -v sudo >/dev/null 2>&1 || { err "sudo is required to write $ETC"; return 1; }
+
+    if [[ -z ${rec:-} ]]; then
+        err "no rollback target recorded in $ETC/PREVIOUS-DISPLAY-MANAGER."
+        err "Disabling greetd without enabling something else would boot this"
+        err "machine to a console, so this refuses. Pick one and do it explicitly:"
+        err "    sudo systemctl disable greetd && sudo systemctl enable sddm"
+        return 1
+    fi
+
+    if [[ $rec == none ]]; then
+        warn "the record says no display manager was enabled before Neobrix."
+        confirm no "Disable greetd and leave no display manager (console login)?" || {
+            info "left alone"; return 0; }
+    elif ! systemctl list-unit-files "$rec" --no-legend >/dev/null 2>&1 \
+         || [[ -z "$(systemctl list-unit-files "$rec" --no-legend 2>/dev/null)" ]]; then
+        err "$rec is recorded as the rollback target but is not installed any more."
+        err "Install it again, or enable a different display manager, then re-run:"
+        err "    sudo pacman -S ${rec%.service}"
+        return 1
+    fi
+
+    # The agreety fallback goes back into place first: if greetd ends up enabled
+    # anyway — a half-finished swap, a later manual change — it must run something
+    # that works rather than a greeter this machine is no longer set up for.
+    if [[ -e $ETC/config.toml.pre-regreet ]]; then
+        sudo cp "$ETC/config.toml.pre-regreet" "$ETC/config.toml" \
+            && step "restored $ETC/config.toml from the pre-Neobrix copy"
+    fi
+
+    if [[ $dm == greetd.service ]]; then
+        sudo systemctl disable greetd.service >/dev/null 2>&1 && step "disabled greetd.service" \
+            || { err "could not disable greetd"; return 1; }
+    else
+        step "greetd was not the enabled display manager (${dm:-none})"
+    fi
+
+    if [[ $rec != none ]]; then
+        sudo systemctl enable "$rec" >/dev/null 2>&1 && step "enabled $rec" \
+            || { err "could not enable $rec — greetd is disabled and nothing replaced it."
+                 err "Fix before rebooting:  sudo systemctl enable $rec"; return 1; }
+    fi
+
+    echo
+    info "your previous login screen (${rec}) is back from the NEXT boot."
+    info "Nothing was restarted, so this session is untouched."
+}
+
+usage() { sed -n '2,26p' "$(readlink -f "$0")" | sed 's/^# \?//'; }
+
+case "${1:-status}" in
+    status)          cmd_status ;;
+    enable|activate) cmd_enable ;;
+    disable|restore) cmd_disable ;;
+    -h|--help|help)  usage ;;
+    *) err "unknown command: $1"; usage >&2; exit 2 ;;
+esac

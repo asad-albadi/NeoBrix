@@ -11,6 +11,7 @@
 #    neobrix logs        follow the shell log
 #    neobrix status      what is running, which theme, which wallpaper
 #    neobrix theme       show / set / toggle the palette
+#    neobrix greeter     login screen: status | enable | disable
 #    neobrix wallpaper   passthrough to neobrix-wallpaper
 #    neobrix install     re-run the deployer
 # ─────────────────────────────────────────────────────────────────────────────
@@ -158,6 +159,8 @@ case "${1:-status}" in
     logs)      shift; cmd_logs "$@" ;;
     theme)     shift; cmd_theme "$@" ;;
     wallpaper) shift; neobrix-wallpaper "$@" ;;
+    # Passthrough, so the installer and this CLI run the same activation code.
+    greeter)   shift; "$(command -v neobrix-greeter || echo "$REPO/scripts/neobrix-greeter")" "$@" ;;
     install)   shift; "$REPO/install/deploy.sh" "$@" ;;
     -h|--help|help) usage ;;
     *)         printf 'unknown command: %s\n\n' "$1"; usage; exit 1 ;;

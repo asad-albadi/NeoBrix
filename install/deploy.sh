@@ -395,23 +395,19 @@ stage_greeter() {
 
     cat <<GREETER
 
-  Preview it without touching greetd (this is the safe way, and the only way to
-  see it before it is the only thing between you and your machine):
+  Staged, not active. Preview it without touching greetd — this renders the real
+  UI with no login path involved:
         regreet --demo -c $etc/regreet.toml -s $etc/regreet.css
 
-  Activate once the preview looks right. No --now on either unit: stopping the
-  display manager that started your session kills that session on the spot, and
-  starting greetd underneath a running desktop fights it for vt1. Swap the units
-  and reboot instead. Disable first, enable second — both claim the
-  display-manager.service alias, so enabling greetd fails while the old one holds
-  it.
-        sudo cp $etc/config.toml.neobrix-greeter $etc/config.toml
-        sudo systemctl disable $(cat "$etc/PREVIOUS-DISPLAY-MANAGER" 2>/dev/null || echo '<current-display-manager>')
-        sudo systemctl enable greetd
-        readlink -f /etc/systemd/system/display-manager.service   # expect greetd.service
-        sudo reboot
+  When you are ready to make it the login screen:
+        neobrix greeter enable
 
-  Rollback, if the greeter ever fails to appear: $etc/RECOVERY
+  That asks first, refuses unless the rollback is in place (RECOVERY, the agreety
+  fallback, a recorded display manager and a reachable getty), records what it
+  replaces, and takes effect at the next boot without restarting anything. To
+  reverse it: neobrix greeter disable
+
+  Rollback if the greeter ever fails to appear: $etc/RECOVERY
 GREETER
 }
 

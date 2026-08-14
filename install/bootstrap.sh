@@ -187,12 +187,24 @@ STEP="deploying configuration"
 STEP="staging the login screen"
 if (( DO_GREETER )); then
     "$DIR/install/deploy.sh" --greeter
+    # Staging succeeded; activation is a separate, stricter question that
+    # neobrix-greeter asks itself — and only ever at a terminal.
+    if (( ! ASSUME_YES )) && [[ -n ${NB_TTY:-} ]]; then
+        "$DIR/scripts/neobrix-greeter" enable || true
+    else
+        step "not activated: activation only happens when asked at a terminal"
+        step "later, from a terminal:  neobrix greeter enable"
+    fi
 elif (( NO_SUDO )); then
     step "login screen untouched — no sudo on this machine to write /etc/greetd"
 elif confirm no "Also stage the Neobrix login screen? Writes /etc/greetd (sudo); staging alone does not switch anything"; then
     "$DIR/install/deploy.sh" --greeter
+    if (( ! ASSUME_YES )) && [[ -n ${NB_TTY:-} ]]; then
+        "$DIR/scripts/neobrix-greeter" enable || true
+    fi
 else
-    step "login screen untouched — run '$DIR/install/deploy.sh --greeter' later"
+    step "login screen untouched. Log into the Neobrix session first, then:"
+    step "    neobrix greeter enable      # asks before changing anything"
 fi
 
 STEP="finishing"

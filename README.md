@@ -72,11 +72,26 @@ it does move is copied to `~/.config-backup/` first. Units are disabled rather
 than uninstalled, because that is reversible; package removal is a separate
 question asked last.
 
-*The login screen* — untouched unless you ask. A greeter that fails to start
-means you cannot log in, so it comes last, after the desktop is in place, and it
-goes through `deploy.sh --greeter`, which writes `/etc/greetd/RECOVERY` and keeps
-an `agreety` fallback **before** anything changes. It stages only: the live
-`config.toml` is not replaced and `greetd` is not enabled. See
+*The login screen* — untouched unless you ask, and asked in two steps. It comes
+last, after the desktop is in place. First `deploy.sh --greeter` **stages** it:
+`/etc/greetd/RECOVERY`, an `agreety` fallback and the config are written
+*beside* the live one, which is not replaced. Then, separately, you are asked
+whether to **activate** it.
+
+Activation is the strictest prompt in the project, because a greeter that will
+not start means a machine you cannot log into:
+
+* it only happens when a human answers at a terminal — **never** from a pipe,
+  never under `--yes`, and there is no flag to bypass it;
+* the default is no;
+* it refuses outright unless the rollback already exists: `greetd`, `regreet` and
+  `cage` installed, `RECOVERY` written, the `agreety` fallback staged, the
+  replaced display manager recorded, and **a getty reachable on another VT** —
+  if there is no Ctrl+Alt+F2 escape on your machine it will not activate at all;
+* it takes effect at the **next boot**. Nothing is restarted, because restarting
+  greetd would end the session you are sitting in.
+
+Answer no and it tells you the one-liner for later. See
 [Login screen](#login-screen).
 
 To undo everything:
@@ -138,7 +153,6 @@ they are AUR packages. `install/packages.sh` treats those two as optional and
 skips them with a note rather than failing, so a plain Arch install needs no AUR
 helper to get a working desktop — you just supply your own browser and editor, or
 install those two from the AUR yourself. See [Dependencies](#dependencies).
-
 
 ## Screenshots
 
@@ -305,6 +319,30 @@ writes `RECOVERY` and both greetd configs into `/etc/greetd`. It **stages** only
 `config.toml` is never replaced and `greetd` is never enabled. Every other part of
 `deploy.sh` stays inside `$HOME` and needs no root; this is the one flag that
 calls `sudo`.
+
+Activating and reversing it is one command each — the installer calls exactly the
+same code, so there is one implementation of the risky part:
+
+```bash
+neobrix greeter status      # what is staged, what is active, what the rollback is
+neobrix greeter enable      # asks, then activates for the NEXT boot
+neobrix greeter disable     # puts the recorded display manager back
+```
+
+`enable` refuses rather than half-applying. It needs `greetd`, `regreet` and
+`cage` present, `RECOVERY` and the `agreety` fallback already staged, and a getty
+reachable on another VT; it only proceeds when a human answers at a terminal, so
+no pipe and no flag can trigger it; and it records the display manager it is
+replacing **before** disabling anything, which is what `disable` and
+`install/uninstall.sh` read to put things back. Neither restarts anything —
+greetd taking over mid-session would end that session — so both take effect at
+the next boot.
+
+Preview the greeter itself any time, without touching greetd:
+
+```bash
+regreet --demo -c /etc/greetd/regreet.toml -s /etc/greetd/regreet.css
+```
 
 The wallpaper is copied to `/usr/share/backgrounds/neobrix/` because the greeter
 runs as the `greeter` user and cannot read `$HOME`.
@@ -541,6 +579,7 @@ Full list: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md). The essentials:
 | Command | Purpose |
 |---|---|
 | `neobrix reload\|restart\|check\|status\|logs\|theme` | session helper: reload Hyprland, restart the shell, verify the deployment, inspect state |
+| `neobrix greeter status\|enable\|disable` | login screen: inspect, activate (asks first), or restore the display manager it replaced |
 | `neobrix-screenshot region\|screen\|window\|edit` | capture → file + clipboard + notification |
 | `neobrix-wallpaper apply\|next\|prev\|theme\|list\|generate` | wallpaper selection |
 | `neobrix-generate-wallpapers [dir] [WxH]` | regenerate the built-in set |
