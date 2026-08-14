@@ -1,19 +1,105 @@
 Neobrix greeter recovery
 ========================
 
-Only needed if the login screen fails to appear after a boot. From a TTY
-(Ctrl+Alt+F2) or the hypervisor console:
+Read this before activating the greeter, not after. It is deliberately a separate
+file: a ready-to-paste rollback command sitting in a comment inside config.toml
+is too easy to run by mistake, and on the machine this was first built on exactly
+that happened — a command in a config comment got executed and the greeter did
+not come up after a reboot. Nothing in /etc/greetd/config.toml is runnable.
+
+
+Getting a shell when there is no login screen
+---------------------------------------------
+
+Press Ctrl+Alt+F2 (F3..F6 work too). systemd-logind spawns a getty on those
+virtual terminals on demand, independently of any display manager, so this works
+even when greetd is broken or disabled. Log in there as your normal user.
+
+If a graphical session is still running, Ctrl+Alt+F1 goes back to it.
+
+
+Rolling back to the text-mode greeter
+-------------------------------------
 
     sudo cp /etc/greetd/config.toml.pre-regreet /etc/greetd/config.toml
     sudo systemctl restart greetd
 
-That switches to agreety, greetd's text-mode greeter. It is part of the greetd
-package itself, so it cannot go missing.
+That restores whatever greetd was configured to run before Neobrix touched it.
+`./install/deploy.sh --greeter` saves that file once, on its first run, and never
+overwrites it afterwards, so it stays the original.
 
-To put the Neobrix greeter back:
+If it is missing, write an agreety config by hand — agreety is part of the greetd
+package itself, so it cannot go missing the way a graphical greeter can:
+
+    sudo tee /etc/greetd/config.toml >/dev/null <<'EOF'
+    [terminal]
+    vt = 1
+
+    [default_session]
+    command = "agreety --cmd /bin/fish"
+    user = "greeter"
+    EOF
+    sudo systemctl restart greetd
+
+Restarting greetd ends the running graphical session. Do it from a VT, not from a
+terminal inside your desktop.
+
+
+Putting the Neobrix greeter back
+--------------------------------
 
     sudo cp /etc/greetd/config.toml.neobrix-greeter /etc/greetd/config.toml
     sudo systemctl restart greetd
 
-Note: CachyOS's noctalia-greeter has been uninstalled, so it is no longer an
-option. Reinstall it with `pacman -S noctalia-greeter` if you want it back.
+Preview it first, without touching greetd at all — this renders the real UI with
+no login path involved:
+
+    regreet --demo -c /etc/greetd/regreet.toml -s /etc/greetd/regreet.css
+
+
+Going back to the previous display manager
+------------------------------------------
+
+Activating greetd means disabling whatever display manager was enabled before.
+`deploy.sh --greeter` records which one that was:
+
+    cat /etc/greetd/PREVIOUS-DISPLAY-MANAGER
+
+To reverse it (substituting that unit name):
+
+    sudo systemctl disable --now greetd
+    sudo systemctl enable --now sddm     # or the unit named in that file
+
+Only one display manager may be enabled at a time; `systemctl enable` on a second
+one fails, because they all contend for the same display-manager.service alias.
+
+On the author's laptop the previous display manager was **SDDM**. It is disabled,
+not uninstalled: disabling is reversible with one command, while uninstalling in
+the middle of a greeter that will not start is not. Re-enabling it is the two
+commands above.
+
+If you do decide to remove it later, do it only after the new greeter has
+survived several real reboots, and note that getting it back means installing the
+package again before enabling it.
+
+CachyOS's noctalia-greeter, which earlier versions of this file pointed at, is not
+part of this picture — it was specific to the VM Neobrix was developed on.
+
+
+Choosing the right session at the greeter
+-----------------------------------------
+
+Pick **Hyprland (uwsm-managed)**, not plain Hyprland. Neobrix's systemd user
+units (neobrix-shell, hypridle, the polkit agent, cliphist) are all
+WantedBy=graphical-session.target, and it is uwsm that reaches that target. Start
+the plain session and Hyprland comes up with no bar, no panels and no idle
+daemon. ReGreet remembers the choice per user afterwards, in /var/lib/regreet.
+
+
+Things that are deliberately not offered
+----------------------------------------
+
+No autologin, and no greetd `initial_session`. The greeter is the only
+authentication gate on this machine; `skip_selection` stays false. If the greeter
+is failing, fix it or roll back — do not route around it by logging in
+automatically.

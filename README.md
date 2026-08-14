@@ -223,6 +223,14 @@ With no argument it reads the persisted palette. This is the one piece of themin
 `neobrix-theme`, so the mode is baked in and changing it means re-running the
 script.
 
+`./install/deploy.sh --greeter` does the same thing as part of a deploy, plus it
+writes `RECOVERY` and both greetd configs into `/etc/greetd`. It **stages** only:
+`config.toml` is never replaced and `greetd` is never enabled, because a greeter
+that fails to come up leaves no way to log in. Preview with `regreet --demo`
+first, then activate by hand from a TTY — the script prints both commands. Every
+other part of `deploy.sh` stays inside `$HOME` and needs no root; this is the one
+flag that calls `sudo`.
+
 The wallpaper is copied to `/usr/share/backgrounds/neobrix/` because the greeter
 runs as the `greeter` user and cannot read `$HOME`.
 
@@ -374,6 +382,7 @@ cd ~/Projects/neobrix
 ./install/packages.sh
 ./install/deploy.sh --dry-run     # inspect first
 ./install/deploy.sh
+./install/deploy.sh --greeter     # optional: also stage the login screen (sudo)
 ```
 
 `deploy.sh` symlinks the repo into `~/.config`, so editing the repo edits the live
@@ -382,7 +391,8 @@ copied to `~/.config-backup/deploy-<timestamp>/` first. It also links
 `scripts/*` into `~/.local/bin`, installs and enables the systemd user units,
 generates the wallpapers, points the XDG browser handlers at Zen, and themes Zen
 itself — the last of these is skipped with a note if Zen has never been started,
-since the profile it writes into does not exist until then.
+since the profile it writes into does not exist until then. The login screen is
+the one thing it leaves alone unless asked: see [`--greeter`](#login-screen).
 
 Then log out and back in. To apply most of it without logging out:
 

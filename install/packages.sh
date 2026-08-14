@@ -54,17 +54,27 @@ LOOK=(
     adwaita-cursors
 )
 
+# ── login screen ────────────────────────────────────────────────────────────
+# Only used once ./install/deploy.sh --greeter is run; installing them changes
+# nothing on its own, since greetd stays disabled until you activate it.
+GREETER=(
+    greetd            # the login daemon
+    greetd-agreety    # text-mode fallback greeter — the rollback in RECOVERY
+                      # depends on this existing, so it is listed explicitly
+                      # rather than left to greetd's dependencies
+    greetd-regreet    # the GTK4 greeter Neobrix themes
+    cage              # the kiosk compositor regreet runs inside
+)
+
 # ── applications ────────────────────────────────────────────────────────────
 APPS=(
     alacritty
     dolphin
     zen-browser-bin
     cursor-bin
-    greetd-regreet
-    cage
 )
 
-ALL=("${CORE[@]}" "${SERVICES[@]}" "${UTILS[@]}" "${LOOK[@]}" "${APPS[@]}")
+ALL=("${CORE[@]}" "${SERVICES[@]}" "${UTILS[@]}" "${LOOK[@]}" "${GREETER[@]}" "${APPS[@]}")
 
 if [[ "${1:-}" == "--list" ]]; then
     printf '%s\n' "${ALL[@]}"
