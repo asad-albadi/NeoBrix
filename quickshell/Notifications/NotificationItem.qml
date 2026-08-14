@@ -164,7 +164,13 @@ Item {
                 wrapMode: Text.WordWrap
                 maximumLineCount: root.popup ? 3 : 8
                 elide: Text.ElideRight
-                onLinkActivated: link => Quickshell.execDetached(["xdg-open", link])
+                // The body is StyledText, so a sender can put any <a href> in it —
+                // including schemes that hand a local path or a registered handler
+                // to xdg-open. Only web and mail links are followed.
+                onLinkActivated: link => {
+                    if (/^(https?|mailto):/i.test(link))
+                        Quickshell.execDetached(["xdg-open", link]);
+                }
             }
 
             // Image supplied via the image-data/image-path hints.

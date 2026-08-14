@@ -53,18 +53,33 @@ Singleton {
         interval: 400
         onTriggered: {
             if (!root.primary) { root.ipv4 = "—"; return; }
-            ipProc.command = ["sh", "-c",
-                "ip -4 -o addr show dev " + root.primary.name
-                + " 2>/dev/null | awk '{print $4}' | head -n1"];
+            // Argument vector, not `sh -c`: the interface name is interpolated
+            // here, and the kernel permits ';', '$()' and '|' in an ifname (it
+            // rejects only whitespace, '/' and ':'). Naming an interface needs
+            // CAP_NET_ADMIN so this was never reachable, but there is no reason
+            // to hand an externally-derived string to a shell for a command that
+            // does not need one.
+            ipProc.command = ["ip", "-4", "-o", "addr", "show", "dev", root.primary.name];
             ipProc.running = true;
         }
     }
 
     Process {
         id: ipProc
+        // `ip -4 -o addr show dev X` prints one line per address:
+        //   2: ens18    inet 10.10.12.110/24 brd ... scope global ens18\  valid_lft ...
+        // The address is the fourth whitespace-separated field of the first line,
+        // which is what the old awk/head pipeline extracted.
         stdout: StdioCollector {
-            onStreamFinished: root.ipv4 = text.trim() !== "" ? text.trim() : "—"
+            onStreamFinished: {
+                const line = text.split("\n").find(l => l.trim() !== "");
+                const fields = line ? line.trim().split(/\s+/) : [];
+                root.ipv4 = fields.length >= 4 ? fields[3] : "—";
+            }
         }
+        // Swallowed rather than logged: querying an interface that disappeared
+        // between the signal and the timer is routine, not an error worth noise.
+        stderr: StdioCollector {}
     }
 
     // Name of the active connection: SSID on wifi, connection profile on wired.

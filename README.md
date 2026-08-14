@@ -462,8 +462,9 @@ decisions:
   capture device.
 * **Software rendering.** Mesa falls back to `kms_swrast`/llvmpipe, so the shell's
   ~360 MB PSS is mostly the software rasteriser (≈290 MB of it is anonymous
-  llvmpipe/LLVM memory). Idle CPU is 0 %. Blur is disabled and animations are kept
-  short for this reason.
+  llvmpipe/LLVM memory). Idle CPU is 0 %. Blur is disabled and animations are short,
+  which suits the rasteriser — though both are design choices first, and stay that
+  way on real hardware (see [Physical-machine notes](#physical-machine-notes)).
 * **No wallpaper daemon.** hyprpaper never registers a wallpaper target here, so
   the shell draws the wallpaper itself.
 * **hyprlock cannot screenshot itself.** Screencopy needs a DRM dumb buffer the
@@ -510,12 +511,14 @@ merit. They are safe everywhere, but real hardware can do better — override th
 
 | Setting | Tracked value | Why, and what to consider on real hardware |
 |---|---|---|
-| `render.direct_scanout` | `0` | Disabled because a virtualised GPU can present blank frames. On a real GPU set `1` to let fullscreen apps bypass compositing. |
+| `render.direct_scanout` | `0` | Off because a virtualised GPU can present blank frames. Setting `1` on real hardware is unlikely to change much on its own: as `hypr/config/appearance.lua:137` notes, the shell's layer surfaces block scanout anyway. |
 | `decoration.blur.enabled` | `false` | Primarily a design choice — brutalism is flat — but also a cost the software rasteriser cannot absorb. Enable it locally if you want it. |
-| `input.accel_profile` | `"flat"` | Predictable for a SPICE/virtio pointer, and what CachyOS set. A real mouse is fine with flat; a touchpad usually wants `"adaptive"`. |
+| `input.accel_profile` | `"flat"` | Predictable for a SPICE/virtio pointer, and what CachyOS set. Note this is the **global** pointer setting (`hypr/config/input.lua:15`) and applies to every pointer — the `touchpad` block has no `accel_profile` of its own. To give a touchpad a different profile, add a per-device section rather than changing this value. |
 
-Animation speeds are *not* in that list: they are short because brutalism snaps, not
-to save frames, and should stay as they are.
+Animation speeds are *not* in that list. They are short for two reasons that happen
+to agree — brutalism snaps, and short animations are cheap for a software rasteriser
+(`hypr/config/animations.lua:3`) — so they are a design choice that suits the VM
+rather than a concession to it. Leave them as they are on real hardware.
 
 ## Troubleshooting
 
