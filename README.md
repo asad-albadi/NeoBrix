@@ -434,6 +434,7 @@ Full list: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md). The essentials:
 
 | Command | Purpose |
 |---|---|
+| `neobrix reload\|restart\|check\|status\|logs\|theme` | session helper: reload Hyprland, restart the shell, verify the deployment, inspect state |
 | `neobrix-screenshot region\|screen\|window\|edit` | capture → file + clipboard + notification |
 | `neobrix-wallpaper apply\|next\|prev\|theme\|list\|generate` | wallpaper selection |
 | `neobrix-generate-wallpapers [dir] [WxH]` | regenerate the built-in set |
@@ -484,6 +485,22 @@ The dotfiles are written to run unchanged on real hardware:
   ```
 * Touchpad settings, gestures and brightness keys appear automatically once that
   hardware exists — the config probes for it rather than assuming.
+* **Join Wi-Fi once from the terminal before relying on the panel.** The
+  connectivity card lists networks and can toggle the radio, connect and
+  disconnect, but it has no passphrase prompt, and nothing in the session
+  registers a NetworkManager secret agent. Clicking a secured network with no
+  saved profile therefore cannot succeed. Create the profile once:
+
+  ```bash
+  nmtui                       # or: nmcli device wifi connect <SSID> --ask
+  ```
+
+  After that the profile is known and the panel connects and disconnects it
+  normally. Worth doing before you log out of your current desktop on a laptop
+  with no wired port.
+* Closing the lid is handled by logind, not by this config, and hypridle's
+  `before_sleep_cmd = loginctl lock-session` means the session locks before it
+  suspends.
 * `hypridle` never suspends by default; add a suspend listener locally if you want
   one.
 
