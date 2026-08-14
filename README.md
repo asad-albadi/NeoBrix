@@ -385,6 +385,9 @@ cd ~/Projects/neobrix
 ./install/deploy.sh --greeter     # optional: also stage the login screen (sudo)
 ```
 
+Run these from the repository root — the paths are relative, and a shell will
+simply report `./install/deploy.sh` as an unknown command from anywhere else.
+
 `deploy.sh` symlinks the repo into `~/.config`, so editing the repo edits the live
 configuration — there is never a divergent second copy. Anything it replaces is
 copied to `~/.config-backup/deploy-<timestamp>/` first. It also links
