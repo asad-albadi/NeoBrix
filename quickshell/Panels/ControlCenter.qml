@@ -1,10 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Control center — the Neobrix "dashboard".
 //
-//  Two tabs share one window:
+//  Three tabs share one window:
 //    system        · identity, clock, audio/mic levels, system specs, resources,
-//                    media, network, bluetooth, quick actions
+//                    media, quick actions
+//    connectivity  · the wired link, Wi-Fi and Bluetooth
 //    notifications · the notification centre
+//
+//  Connectivity used to be a card in the SYSTEM tab's right-hand column. That
+//  only fitted on hardware with no wireless and no Bluetooth: with both present
+//  the Bluetooth block was clipped off the bottom of the card.
 //
 //  Sampling is reference-counted: SysInfo only reads /proc and Media only ticks
 //  its position while this panel is actually open.
@@ -62,6 +67,16 @@ BrixPopup {
                 }
 
                 BrixButton {
+                    text: "CONNECTIVITY"
+                    icon: Net.connected ? Net.icon : "󰤭"
+                    fontSize: Theme.fontSm
+                    active: Panels.controlTab === "connectivity"
+                    activeAccent: Theme.info
+                    accent: Theme.surface
+                    onClicked: Panels.controlTab = "connectivity"
+                }
+
+                BrixButton {
                     text: "NOTIFICATIONS"
                     icon: Notifs.count > 0 ? "󱅫" : "󰂚"
                     fontSize: Theme.fontSm
@@ -107,6 +122,12 @@ BrixPopup {
                 SystemTab {
                     anchors.fill: parent
                     visible: Panels.controlTab === "system"
+                    active: root.open && visible
+                }
+
+                ConnectivityTab {
+                    anchors.fill: parent
+                    visible: Panels.controlTab === "connectivity"
                     active: root.open && visible
                 }
 

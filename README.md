@@ -77,7 +77,9 @@ In [`docs/screenshots/`](docs/screenshots). Regenerate with
 | ![desktop](docs/screenshots/desktop.png) | ![launcher](docs/screenshots/launcher.png) |
 | **Desktop** — bar and generated wallpaper | **Launcher** — fuzzy search over `.desktop` entries |
 | ![control center](docs/screenshots/control-center.png) | ![calendar](docs/screenshots/calendar.png) |
-| **Control center** — audio, media, specs, resources, connectivity | **Calendar** — clock, date, month navigation |
+| **Control center** — audio, media, specs, resources; connectivity is its own tab | **Calendar** — clock, date, month navigation |
+| ![connectivity](docs/screenshots/connectivity.png) | ![notifications](docs/screenshots/notifications.png) |
+| **Connectivity** — wired link, Wi-Fi and Bluetooth, each list scrolling in its own card. Network names and the address are covered by blocks in this screenshot, not by the shell | **Notification centre** — history, do-not-disturb, clear all |
 | ![dusk](docs/screenshots/dusk.png) | ![lock](docs/screenshots/lock.png) |
 | **Neobrix Dark** — the same panel in the `dusk` palette | **Lock screen** — hyprlock, themed from the same palette |
 | ![cursor dawn](docs/screenshots/cursor-dawn.png) | ![cursor dusk](docs/screenshots/cursor-dusk.png) |
@@ -127,8 +129,8 @@ quickshell/
 ├── Bar/                 Bar · Workspaces · ActiveWindow · Tray · TrayMenu
 │                        Indicators · MediaPill · ClockPill · NotifButton
 ├── Launcher/            Launcher · AppEntry
-├── Panels/              ControlCenter · SystemTab · AudioCard · SpecsCard
-│                        ResourcesCard · ConnectivityCard · MediaCard
+├── Panels/              ControlCenter · SystemTab · ConnectivityTab
+│                        AudioCard · SpecsCard · ResourcesCard · MediaCard
 │                        NotificationCenter · CalendarPanel · SessionPanel
 │                        ClipboardPanel
 ├── Notifications/       NotificationLayer · NotificationItem · Osd
@@ -459,6 +461,8 @@ The shell is also scriptable:
 
 ```bash
 qs -c neobrix ipc call panels toggle launcher
+qs -c neobrix ipc call panels control system
+qs -c neobrix ipc call panels control connectivity
 qs -c neobrix ipc call panels control notifications
 qs -c neobrix ipc call theme set dusk
 qs -c neobrix ipc call wallpaper next
@@ -502,10 +506,11 @@ The dotfiles are written to run unchanged on real hardware:
 * Touchpad settings, gestures and brightness keys appear automatically once that
   hardware exists — the config probes for it rather than assuming.
 * **Join Wi-Fi once from the terminal before relying on the panel.** The
-  connectivity card lists networks and can toggle the radio, connect and
+  connectivity tab lists networks and can toggle the radio, connect and
   disconnect, but it has no passphrase prompt, and nothing in the session
   registers a NetworkManager secret agent. Clicking a secured network with no
-  saved profile therefore cannot succeed. Create the profile once:
+  saved profile therefore cannot succeed — such rows say `needs nmtui once`
+  rather than offering a click that fails. Create the profile once:
 
   ```bash
   nmtui                       # or: nmcli device wifi connect <SSID> --ask

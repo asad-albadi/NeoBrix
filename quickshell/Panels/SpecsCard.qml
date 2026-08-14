@@ -23,6 +23,12 @@ BrixCard {
 
         SectionHeader { text: "SYSTEM SPECS"; icon: "󰇅"; Layout.fillWidth: true }
 
+        // The card is stretched by the column it sits in (connectivity used to
+        // take that slack before it became its own tab). Equal spacers above and
+        // below centre the tiles in whatever height is left, so the leftover
+        // reads as padding rather than as a hole under the last row.
+        Item { Layout.fillHeight: true }
+
         GridLayout {
             Layout.fillWidth: true
             columns: 2
@@ -48,6 +54,8 @@ BrixCard {
                 accent: Theme.error
             }
         }
+
+        Item { Layout.fillHeight: true }
     }
 
     component Spec: BrixCard {

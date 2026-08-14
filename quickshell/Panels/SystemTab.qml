@@ -1,5 +1,5 @@
 // The dashboard grid: identity · clock · levels · specs · media · resources ·
-// network/bluetooth · quick actions.
+// quick actions. Network and Bluetooth live in the CONNECTIVITY tab.
 //
 // Laid out in three columns like the Neobrix reference, with the media and
 // resource cards spanning the bottom.
@@ -251,7 +251,13 @@ Item {
             }
         }
 
-        // ── column 3: specs + resources + connectivity ──────────────────────
+        // ── column 3: specs + resources ─────────────────────────────────────
+        // Connectivity used to sit under these two and take the slack with
+        // fillHeight. With it promoted to its own tab, the two remaining cards
+        // share that space instead of leaving a hole at the bottom of the
+        // column: both stretch, and inside them the spec tiles and the meters
+        // stretch too, so the extra height goes into the rows rather than into
+        // an empty strip under the last one.
         ColumnLayout {
             Layout.fillWidth: false
             Layout.preferredWidth: 250
@@ -260,9 +266,8 @@ Item {
             Layout.fillHeight: true
             spacing: Theme.spaceMd
 
-            SpecsCard { Layout.fillWidth: true }
-            ResourcesCard { Layout.fillWidth: true }
-            ConnectivityCard { Layout.fillWidth: true; Layout.fillHeight: true }
+            SpecsCard { Layout.fillWidth: true; Layout.fillHeight: true }
+            ResourcesCard { Layout.fillWidth: true; Layout.fillHeight: true }
         }
     }
 

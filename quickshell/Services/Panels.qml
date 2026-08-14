@@ -20,7 +20,8 @@ Singleton {
 
     // "" | launcher | control | calendar | session | clipboard | notifications
     property string current: ""
-    // Sub-view inside the control center: "system" | "notifications"
+    // Sub-view inside the control center.
+    readonly property var controlTabs: ["system", "connectivity", "notifications"]
     property string controlTab: "system"
 
     readonly property bool anyOpen: current !== ""
@@ -30,15 +31,22 @@ Singleton {
     function toggle(name) { current = (current === name) ? "" : name; }
     function isOpen(name) { return current === name; }
 
+    // An unknown tab name would leave the control center on screen with every
+    // tab body hidden — a blank panel. Fall back to system instead.
+    function resolveTab(tab) {
+        return controlTabs.indexOf(tab) !== -1 ? tab : "system";
+    }
+
     function openControl(tab) {
-        controlTab = tab || "system";
+        controlTab = resolveTab(tab);
         current = "control";
     }
     function toggleControl(tab) {
-        if (current === "control" && controlTab === (tab || "system")) {
+        const want = resolveTab(tab);
+        if (current === "control" && controlTab === want) {
             current = "";
         } else {
-            controlTab = tab || "system";
+            controlTab = want;
             current = "control";
         }
     }

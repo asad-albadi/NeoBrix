@@ -23,6 +23,11 @@ BrixCard {
 
         SectionHeader { text: "RESOURCES"; icon: "󰄨"; Layout.fillWidth: true }
 
+        // Same reasoning as SpecsCard: the column stretches this card, and equal
+        // spacers keep the meters centred instead of leaving dead space below
+        // the last one.
+        Item { Layout.fillHeight: true }
+
         Meter {
             label: "CPU"
             glyph: "󰻠"
@@ -52,6 +57,8 @@ BrixCard {
             value: SysInfo.diskUsage
             detail: SysInfo.diskUsedGiB.toFixed(0) + "/" + SysInfo.diskTotalGiB.toFixed(0) + "G"
         }
+
+        Item { Layout.fillHeight: true }
     }
 
     component Meter: RowLayout {
