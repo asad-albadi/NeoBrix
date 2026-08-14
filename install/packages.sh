@@ -2,10 +2,15 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #  Neobrix packages.
 #
-#  Installs everything the desktop needs from the CachyOS/Arch repositories. There
-#  are no AUR dependencies: Zen Browser is in the `cachyos` repo as
-#  zen-browser-bin, and on plain Arch it can be installed from the AUR or the
-#  upstream tarball (see README).
+#  Everything the desktop itself needs is in Arch's own core/extra — checked
+#  against archlinux.org's package API, 42 of 44 names resolve there. The two
+#  that do not are applications, not desktop plumbing:
+#
+#      zen-browser-bin   CachyOS repo; AUR on plain Arch
+#      cursor-bin        CachyOS repo; AUR on plain Arch
+#
+#  They live in OPTIONAL below and are skipped with a note when unavailable, so a
+#  plain Arch install is not blocked by them.
 #
 #    ./install/packages.sh            install what's missing
 #    ./install/packages.sh --list     print the package list and exit
@@ -73,11 +78,18 @@ GREETER=(
 APPS=(
     alacritty
     dolphin
-    zen-browser-bin
-    cursor-bin
 )
 
-ALL=("${CORE[@]}" "${SERVICES[@]}" "${UTILS[@]}" "${LOOK[@]}" "${GREETER[@]}" "${APPS[@]}")
+# Not in Arch's official repositories. Skipped without failing the run: the shell
+# does not depend on either, and hypr/lib/context.lua probes for the editor
+# before binding a key to it.
+OPTIONAL=(
+    zen-browser-bin   # CachyOS repo, or AUR/upstream tarball on plain Arch
+    cursor-bin        # CachyOS repo, or AUR on plain Arch
+)
+
+REQUIRED_ALL=("${CORE[@]}" "${SERVICES[@]}" "${UTILS[@]}" "${LOOK[@]}" "${GREETER[@]}" "${APPS[@]}")
+ALL=("${REQUIRED_ALL[@]}" "${OPTIONAL[@]}")
 
 if [[ "${1:-}" == "--list" ]]; then
     printf '%s\n' "${ALL[@]}"
@@ -98,9 +110,26 @@ for p in "${ALL[@]}"; do
 done
 
 if (( ${#unavailable[@]} )); then
-    printf '\033[33m==>\033[0m not in any configured repository: %s\n' "${unavailable[*]}"
-    printf '    zen-browser-bin lives in the CachyOS repo; on plain Arch install it\n'
-    printf '    from the AUR (paru -S zen-browser-bin) or use the upstream tarball.\n'
+    # Optional names missing is expected on plain Arch and is not an error.
+    optional_missing=(); required_missing=()
+    for u in "${unavailable[@]}"; do
+        if printf '%s\n' "${OPTIONAL[@]}" | grep -qx -- "$u"; then
+            optional_missing+=("$u")
+        else
+            required_missing+=("$u")
+        fi
+    done
+    if (( ${#optional_missing[@]} )); then
+        printf '\033[33m==>\033[0m skipping, not in your repositories: %s\n' "${optional_missing[*]}"
+        printf '    These are applications, not part of the desktop. On plain Arch they are\n'
+        printf '    AUR packages (paru -S zen-browser-bin cursor-bin), or install Zen from\n'
+        printf '    upstream. Neobrix runs without them; the browser keybind and the IDE\n'
+        printf '    keybind simply point at whatever you do have.\n'
+    fi
+    if (( ${#required_missing[@]} )); then
+        printf '\033[31m==>\033[0m required packages not found in any repository: %s\n' "${required_missing[*]}"
+        printf '    This is unexpected on Arch or CachyOS — check your mirrors.\n'
+    fi
 fi
 
 if (( ${#missing[@]} == 0 )); then

@@ -129,8 +129,16 @@ going in.
 ### Requirements
 
 CachyOS or Arch, Hyprland ≥ 0.55 (for the Lua configuration format), Quickshell,
-and a Nerd Font. Everything is in the standard repositories; no AUR helper is
-needed. See [Dependencies](#dependencies).
+and a Nerd Font.
+
+Every package the desktop itself needs is in Arch's own `core`/`extra` — checked
+against archlinux.org's package API, not assumed. Two **applications** are not:
+`zen-browser-bin` and `cursor-bin` are in the `cachyos` repo, and on plain Arch
+they are AUR packages. `install/packages.sh` treats those two as optional and
+skips them with a note rather than failing, so a plain Arch install needs no AUR
+helper to get a working desktop — you just supply your own browser and editor, or
+install those two from the AUR yourself. See [Dependencies](#dependencies).
+
 
 ## Screenshots
 
@@ -440,7 +448,10 @@ Utilities: `wl-clipboard` `cliphist` `grim` `slurp` `satty` `brightnessctl`
 `libnotify` `imagemagick` `librsvg` `python`.
 Look: `ttf-jetbrains-mono-nerd` `papirus-icon-theme` `adw-gtk-theme` `qt5ct`
 `qt6ct` `adwaita-cursors`.
-Apps: `alacritty` `dolphin` `zen-browser-bin`.
+Apps: `alacritty` `dolphin`.
+Optional, not in Arch's official repositories: `zen-browser-bin` `cursor-bin`
+(both in the `cachyos` repo; AUR on plain Arch). Skipped automatically when
+unavailable — the browser and IDE keybinds simply point at what you do have.
 
 ## Manual installation
 
