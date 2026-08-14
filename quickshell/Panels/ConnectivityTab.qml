@@ -28,9 +28,32 @@ Item {
     // Scanning costs power, so it runs only while this tab is actually on
     // screen. beginScan/endScan are reference-counted in Net, so the two calls
     // have to stay paired — hence the destruction guard.
-    readonly property bool scanning: root.active && Net.hasWifi && Net.wifiEnabled
+    // Rows with the passphrase field open. A scan landing mid-typing used to
+    // reorder the list under the cursor and take the field's focus with it, so
+    // while any row is being edited the scan pauses and the list is frozen.
+    property int editingCount: 0
+    readonly property bool editing: root.editingCount > 0
+
+    readonly property bool scanning:
+        root.active && Net.hasWifi && Net.wifiEnabled && !root.editing
     onScanningChanged: scanning ? Net.beginScan() : Net.endScan()
-    Component.onDestruction: if (scanning) Net.endScan()
+
+    // Net.visibleNetworks is ordered by signal strength, which changes on every
+    // scan — that is what made rows jump. Order by something that does not move:
+    // the connection first, then saved profiles, then name.
+    function sortedNetworks() {
+        return Net.visibleNetworks.slice().sort((a, b) =>
+            (b.connected ? 1 : 0) - (a.connected ? 1 : 0)
+            || (b.known ? 1 : 0) - (a.known ? 1 : 0)
+            || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    }
+
+    property var frozenNetworks: null
+    readonly property var displayNetworks:
+        root.frozenNetworks !== null ? root.frozenNetworks : root.sortedNetworks()
+    onEditingChanged: root.frozenNetworks = root.editing ? root.sortedNetworks() : null
+
+    Component.onDestruction: if (root.scanning) Net.endScan();
 
     // ── security helpers ────────────────────────────────────────────────────
     // Owe is opportunistic ("enhanced open") encryption with no passphrase, so
@@ -39,23 +62,6 @@ Item {
         return sec !== WifiSecurityType.Open
             && sec !== WifiSecurityType.Owe
             && sec !== WifiSecurityType.Unknown;
-    }
-
-    function secLabel(sec) {
-        switch (sec) {
-        case WifiSecurityType.Open:          return "OPEN";
-        case WifiSecurityType.Owe:           return "OWE";
-        case WifiSecurityType.Sae:
-        case WifiSecurityType.Wpa3SuiteB192: return "WPA3";
-        case WifiSecurityType.Wpa2Psk:
-        case WifiSecurityType.Wpa2Eap:       return "WPA2";
-        case WifiSecurityType.WpaPsk:
-        case WifiSecurityType.WpaEap:        return "WPA";
-        case WifiSecurityType.StaticWep:
-        case WifiSecurityType.DynamicWep:    return "WEP";
-        case WifiSecurityType.Leap:          return "LEAP";
-        }
-        return "";
     }
 
     // Bars and percentages come from Net.glyphFor/Net.percentFor, so the 0..1
@@ -132,7 +138,7 @@ Item {
                         visible: text !== ""
                         text: {
                             if (root.activeNetwork)
-                                return root.secLabel(root.activeNetwork.security)
+                                return WifiSecurityType.toString(root.activeNetwork.security)
                                      + " · " + Net.percentFor(Net.signalStrength) + "% signal";
                             if (Net.hasWired && Net.wired.hasLink && Net.wired.linkSpeed > 0)
                                 return "LINK " + Net.wired.linkSpeed + " Mb/s";
@@ -210,7 +216,7 @@ Item {
                             id: wifiList
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            model: Net.visibleNetworks
+                            model: root.displayNetworks
                             clip: true
                             spacing: 2
                             boundsBehavior: Flickable.StopAtBounds
@@ -219,107 +225,354 @@ Item {
                                 id: netRow
                                 required property var modelData
 
-                                // Joining a secured network with no saved
-                                // profile needs a passphrase, and there is no
-                                // field for one yet — so the row says what to do
-                                // instead of offering a click that fails
-                                // silently. Not a protocol limitation:
-                                // WifiNetwork.connectWithPsk(psk) exists and is
-                                // the supported path once there is a prompt to
-                                // feed it.
-                                readonly property bool joinable:
-                                    netRow.modelData.known || !root.secured(netRow.modelData.security)
+                                readonly property var net: netRow.modelData
+                                readonly property bool secured: root.secured(netRow.net.security)
+                                // A saved profile already holds the secret, so
+                                // NetworkManager needs nothing from us.
+                                // Also true once NetworkManager has rejected the
+                                // stored secret: a saved profile that cannot
+                                // authenticate must be able to ask again, which
+                                // is exactly what it could not do before.
+                                readonly property bool needsPsk:
+                                    netRow.secured && (!netRow.net.known || netRow.secretRejected)
+
+                                property bool secretRejected: false
+                                property bool awaitingForget: false
+                                property bool askPsk: false
+                                property bool showActions: false
+                                property string failure: ""
 
                                 width: ListView.view.width
-                                height: 34
+                                height: 34 + (netRow.askPsk || netRow.showActions ? 30 : 0)
+
+                                // Row click: connect where that is all it takes,
+                                // otherwise open the passphrase field in place.
+                                function activate() {
+                                    if (netRow.net.stateChanging) return;
+                                    if (netRow.net.connected) { netRow.showActions = !netRow.showActions; return; }
+                                    netRow.failure = "";
+                                    if (netRow.needsPsk) { netRow.showActions = false; netRow.askPsk = true; return; }
+                                    netRow.net.connect();
+                                }
+
+                                // The passphrase is handed straight to
+                                // NetworkManager and dropped: no property keeps
+                                // it, nothing logs it, nothing writes it out.
+                                function submitPsk() {
+                                    if (pskField.text.length === 0) return;
+                                    netRow.failure = "";
+                                    // A stored profile whose secret was rejected
+                                    // cannot be repaired through connectWithPsk:
+                                    // NetworkManager keeps activating the broken
+                                    // profile instead. Drop it, then join fresh
+                                    // when it is actually gone — sequenced on
+                                    // `known`, not on a timer.
+                                    if (netRow.net.known) {
+                                        netRow.awaitingForget = true;
+                                        netRow.net.forget();
+                                        return;
+                                    }
+                                    netRow.net.connectWithPsk(pskField.text);
+                                    pskField.text = "";
+                                    netRow.askPsk = false;
+                                }
+
+                                function closePsk() {
+                                    pskField.text = "";
+                                    netRow.askPsk = false;
+                                }
+
+                                onAskPskChanged: {
+                                    if (netRow.askPsk) {
+                                        root.editingCount++;
+                                    } else {
+                                        root.editingCount--;
+                                        netRow.awaitingForget = false;
+                                        pskField.text = "";
+                                    }
+                                }
+                                Component.onDestruction: if (netRow.askPsk) root.editingCount--;
+
+                                // Leaving the tab must not leave a typed
+                                // passphrase sitting in a recycled delegate.
+                                Connections {
+                                    target: root
+                                    function onActiveChanged() {
+                                        if (!root.active) {
+                                            pskField.text = "";
+                                            netRow.askPsk = false;
+                                            netRow.showActions = false;
+                                        }
+                                    }
+                                }
+
+                                // The real reason, from NetworkManager, rather
+                                // than a silent failure: a wrong passphrase
+                                // arrives here as NoSecrets.
+                                Connections {
+                                    target: netRow.net
+                                    function onConnectionFailed(reason) {
+                                        netRow.failure = ConnectionFailReason.toString(reason);
+                                        if (netRow.secured && reason === ConnectionFailReason.NoSecrets) {
+                                            netRow.secretRejected = true;
+                                            netRow.askPsk = true;
+                                        }
+                                    }
+                                    function onConnectedChanged() {
+                                        if (netRow.net.connected) {
+                                            netRow.failure = "";
+                                            netRow.secretRejected = false;
+                                            netRow.closePsk();
+                                        }
+                                    }
+                                    // The second half of a "forget, then join":
+                                    // the passphrase never leaves the field, so
+                                    // nothing holds it across the round trip.
+                                    function onKnownChanged() {
+                                        if (!netRow.net.known && netRow.awaitingForget) {
+                                            netRow.awaitingForget = false;
+                                            netRow.net.connectWithPsk(pskField.text);
+                                            pskField.text = "";
+                                            netRow.askPsk = false;
+                                        }
+                                    }
+                                }
 
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: Theme.radiusXs
-                                    color: netRow.modelData.connected ? Theme.secondary
+                                    color: netRow.net.connected ? Theme.secondary
+                                         : netRow.askPsk || netRow.showActions ? Theme.surfaceDeep
                                          : netMouse.containsMouse ? Theme.surfaceDeep : "transparent"
                                 }
 
-                                RowLayout {
+                                ColumnLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.spaceXs
                                     anchors.rightMargin: Theme.spaceXs
-                                    spacing: Theme.spaceXs
+                                    spacing: 0
 
-                                    Text {
-                                        text: Net.glyphFor(netRow.modelData.signalStrength)
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: Theme.fontMd
-                                        color: netRow.modelData.connected
-                                               ? Theme.textOn(Theme.secondary) : Theme.foreground
-                                    }
-
-                                    ColumnLayout {
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        spacing: -2
+                                        Layout.preferredHeight: 34
+                                        spacing: Theme.spaceXs
 
                                         Text {
-                                            Layout.fillWidth: true
-                                            text: netRow.modelData.name
-                                            elide: Text.ElideRight
+                                            text: Net.glyphFor(netRow.net.signalStrength)
                                             font.family: Theme.fontFamily
-                                            font.pixelSize: Theme.fontSm
-                                            font.weight: Theme.weightBold
-                                            color: netRow.modelData.connected
+                                            font.pixelSize: Theme.fontMd
+                                            color: netRow.net.connected
                                                    ? Theme.textOn(Theme.secondary) : Theme.foreground
                                         }
-                                        Text {
+
+                                        ColumnLayout {
                                             Layout.fillWidth: true
-                                            text: {
-                                                const parts = [];
-                                                const sec = root.secLabel(netRow.modelData.security);
-                                                if (sec !== "") parts.push(sec);
-                                                parts.push(Net.percentFor(netRow.modelData.signalStrength) + "%");
-                                                if (!netRow.joinable) parts.push("needs nmtui once");
-                                                return parts.join(" · ");
+                                            spacing: -2
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: netRow.net.name
+                                                elide: Text.ElideRight
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: Theme.fontSm
+                                                font.weight: Theme.weightBold
+                                                color: netRow.net.connected
+                                                       ? Theme.textOn(Theme.secondary) : Theme.foreground
                                             }
-                                            elide: Text.ElideRight
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: {
+                                                    if (netRow.failure !== "") return netRow.failure;
+                                                    if (netRow.net.stateChanging)
+                                                        return ConnectionState.toString(netRow.net.state) + "…";
+                                                    const parts = [WifiSecurityType.toString(netRow.net.security)];
+                                                    parts.push(Net.percentFor(netRow.net.signalStrength) + "%");
+                                                    return parts.join(" · ");
+                                                }
+                                                elide: Text.ElideRight
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: 8
+                                                font.weight: netRow.failure !== ""
+                                                             ? Theme.weightBold : Theme.weightNormal
+                                                color: netRow.failure !== "" ? Theme.error
+                                                     : netRow.net.connected
+                                                       ? Theme.textOn(Theme.secondary) : Theme.foregroundDim
+                                            }
+                                        }
+
+                                        // Encryption, not "saved" — the lock used
+                                        // to mark `known`, which is what the
+                                        // SAVED chip says.
+                                        Text {
+                                            visible: netRow.secured
+                                            text: "󰌾"
                                             font.family: Theme.fontFamily
-                                            font.pixelSize: 8
-                                            color: netRow.modelData.connected
+                                            font.pixelSize: Theme.fontSm
+                                            color: netRow.net.connected
                                                    ? Theme.textOn(Theme.secondary) : Theme.foregroundDim
+                                        }
+
+                                        BrixChip {
+                                            visible: !netRow.secured
+                                            text: "OPEN"
+                                            fontSize: 8
+                                            accent: Theme.warning
+                                        }
+
+                                        BrixChip {
+                                            visible: netRow.net.known && !netRow.net.connected
+                                            text: "SAVED"
+                                            fontSize: 8
+                                            accent: Theme.surfaceDeep
+                                        }
+
+                                        BrixChip {
+                                            visible: netRow.net.connected || netRow.net.stateChanging
+                                            text: netRow.net.stateChanging
+                                                  ? ConnectionState.toString(netRow.net.state).toUpperCase()
+                                                  : "CONNECTED"
+                                            fontSize: 8
+                                            accent: Theme.surface
+                                        }
+
+                                        BrixIconButton {
+                                            icon: "󰇘"
+                                            tooltip: "Actions"
+                                            size: 20
+                                            accent: "transparent"
+                                            iconColor: netRow.net.connected
+                                                       ? Theme.textOn(Theme.secondary) : Theme.foregroundDim
+                                            onClicked: {
+                                                netRow.askPsk = false;
+                                                netRow.showActions = !netRow.showActions;
+                                            }
                                         }
                                     }
 
-                                    Text {
-                                        visible: root.secured(netRow.modelData.security)
-                                        text: "󰌾"
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: Theme.fontSm
-                                        color: netRow.modelData.connected
-                                               ? Theme.textOn(Theme.secondary) : Theme.foregroundDim
+                                    // ── passphrase, inline ──────────────────
+                                    RowLayout {
+                                        visible: netRow.askPsk
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 28
+                                        spacing: Theme.spaceXs
+
+                                        BrixCard {
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 24
+                                            radius: Theme.radiusXs
+                                            color: Theme.surface
+                                            shadowOffset: 0
+
+                                            TextInput {
+                                                id: pskField
+                                                anchors.fill: parent
+                                                anchors.leftMargin: Theme.spaceXs
+                                                anchors.rightMargin: Theme.spaceXs
+                                                verticalAlignment: TextInput.AlignVCenter
+                                                font.family: Theme.fontFamily
+                                                font.pixelSize: Theme.fontXs
+                                                color: Theme.foreground
+                                                selectionColor: Theme.primary
+                                                selectedTextColor: Theme.onAccent
+                                                clip: true
+                                                // A passphrase is a secret: never
+                                                // shown, never persisted, never
+                                                // passed through a shell.
+                                                echoMode: TextInput.Password
+                                                passwordCharacter: "•"
+                                                focus: netRow.askPsk
+                                                activeFocusOnTab: true
+
+                                                Text {
+                                                    visible: pskField.text === ""
+                                                    anchors.left: parent.left
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: "Passphrase"
+                                                    font: pskField.font
+                                                    color: Theme.foregroundDim
+                                                }
+
+                                                Keys.onPressed: ev => {
+                                                    if (ev.key === Qt.Key_Escape) {
+                                                        netRow.closePsk();
+                                                        ev.accepted = true;
+                                                    } else if (ev.key === Qt.Key_Return
+                                                               || ev.key === Qt.Key_Enter) {
+                                                        netRow.submitPsk();
+                                                        ev.accepted = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        BrixButton {
+                                            text: netRow.net.known ? "Forget & join" : "Join"
+                                            fontSize: 8
+                                            vPadding: 2
+                                            accent: Theme.primary
+                                            enabled: pskField.text.length > 0
+                                            onClicked: netRow.submitPsk()
+                                        }
+                                        BrixButton {
+                                            text: "Cancel"
+                                            fontSize: 8
+                                            vPadding: 2
+                                            accent: Theme.surfaceAlt
+                                            onClicked: netRow.closePsk()
+                                        }
                                     }
 
-                                    BrixChip {
-                                        visible: netRow.modelData.known && !netRow.modelData.connected
-                                        text: "SAVED"
-                                        fontSize: 8
-                                        accent: Theme.surfaceDeep
-                                    }
+                                    // ── per-network actions ─────────────────
+                                    RowLayout {
+                                        visible: netRow.showActions
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 28
+                                        spacing: Theme.spaceXs
 
-                                    BrixChip {
-                                        visible: netRow.modelData.connected || netRow.modelData.stateChanging
-                                        text: netRow.modelData.stateChanging ? "JOINING" : "CONNECTED"
-                                        fontSize: 8
-                                        accent: Theme.surface
+                                        BrixButton {
+                                            visible: !netRow.net.connected
+                                            text: netRow.needsPsk ? "Join with passphrase" : "Connect"
+                                            fontSize: 8
+                                            vPadding: 2
+                                            accent: Theme.surfaceAlt
+                                            onClicked: {
+                                                netRow.showActions = false;
+                                                netRow.activate();
+                                            }
+                                        }
+                                        BrixButton {
+                                            visible: netRow.net.connected
+                                            text: "Disconnect"
+                                            fontSize: 8
+                                            vPadding: 2
+                                            accent: Theme.surfaceAlt
+                                            onClicked: {
+                                                netRow.showActions = false;
+                                                netRow.net.disconnect();
+                                            }
+                                        }
+                                        BrixButton {
+                                            visible: netRow.net.known
+                                            text: "Forget"
+                                            fontSize: 8
+                                            vPadding: 2
+                                            accent: Theme.error
+                                            onClicked: {
+                                                netRow.showActions = false;
+                                                netRow.net.forget();
+                                            }
+                                        }
+                                        Item { Layout.fillWidth: true }
                                     }
                                 }
 
                                 MouseArea {
                                     id: netMouse
                                     anchors.fill: parent
+                                    anchors.bottomMargin: netRow.askPsk || netRow.showActions ? 30 : 0
                                     hoverEnabled: true
-                                    enabled: netRow.joinable || netRow.modelData.connected
-                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                    onClicked: {
-                                        if (netRow.modelData.connected) netRow.modelData.disconnect();
-                                        else netRow.modelData.connect();
-                                    }
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: netRow.activate()
                                 }
                             }
                         }

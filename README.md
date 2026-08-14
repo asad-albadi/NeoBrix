@@ -505,27 +505,19 @@ The dotfiles are written to run unchanged on real hardware:
   ```
 * Touchpad settings, gestures and brightness keys appear automatically once that
   hardware exists — the config probes for it rather than assuming.
-* **A secured network with no saved profile needs one passphrase entry, and
-  Neobrix has no field for it yet.** The connectivity tab lists networks and can
-  toggle the radio, connect and disconnect, but nothing in the shell asks for a
-  PSK, so those rows say `needs nmtui once` rather than offering a click that
-  fails silently.
+* **Joining a Wi-Fi network no longer needs a terminal.** Clicking a secured
+  network with no saved profile opens a passphrase field in the row itself and
+  hands what you type to `WifiNetwork.connectWithPsk()`; a saved network connects
+  straight away, because NetworkManager already holds its secret. Failures report
+  NetworkManager's own reason in the row — a wrong passphrase reads *"Secrets were
+  required but not provided"* rather than failing silently, and the field reopens
+  so you can try again. Per-network connect, disconnect and forget live behind the
+  row's `…` button.
 
-  This is a missing piece of UI, not a missing piece of plumbing: Quickshell's
-  `WifiNetwork` exposes **`connectWithPsk(psk)`**, which hands the passphrase to
-  NetworkManager directly, so no separate NetworkManager secret agent is needed
-  in the session. A prompt wired to that call is the supported path, and is
-  scoped as its own change.
+  The passphrase is never written anywhere, never logged, and never passed through
+  a shell: it goes from the field to NetworkManager over D-Bus and the field is
+  cleared the moment it is submitted.
 
-  Until then, create the profile once from the terminal:
-
-  ```bash
-  nmtui                       # or: nmcli device wifi connect <SSID> --ask
-  ```
-
-  After that the profile is known and the panel connects and disconnects it
-  normally. Worth doing before you log out of your current desktop on a laptop
-  with no wired port.
 * Closing the lid is handled by logind, not by this config, and hypridle's
   `before_sleep_cmd = loginctl lock-session` means the session locks before it
   suspends.
