@@ -18,6 +18,73 @@
 
 ---
 
+## Install
+
+On CachyOS or Arch:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bootstrap.sh | bash
+```
+
+Or read it first, which is the better habit with any `curl | bash`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bootstrap.sh -o neobrix-install.sh
+less neobrix-install.sh
+bash neobrix-install.sh
+```
+
+Both forms run the same file, and `bash` is required either way — the script is
+bash, not POSIX `sh`.
+
+That script is deliberately thin: it refuses to run as root, refuses a machine
+without `pacman`, clones this repository to `~/Projects/neobrix`, and then hands
+off to [`install/packages.sh`](install/packages.sh) and
+[`install/deploy.sh`](install/deploy.sh), which do the real work and are worth
+reading too. It installs the packages, links the configuration into `~/.config`,
+installs and enables the systemd user units, generates the wallpapers and the
+palette-derived themes, and themes Zen Browser if a profile exists.
+
+| Flag | Effect |
+|---|---|
+| `--yes` | Non-interactive. Safe defaults, and **removes nothing**. |
+| `--no-packages` | Skip `pacman`; only link configuration. |
+| `--greeter` | Also stage the login screen. Asked about otherwise; never silent. |
+| `--dir <path>` | Where to clone. Default `~/Projects/neobrix`, or `$NEOBRIX_DIR`. |
+| `--uninstall` | Undo: restore backups, disable the units, report what it left. |
+| `--help` | The list above. |
+
+With the piped form, flags have to be handed past `bash` itself, or `bash` takes
+them as its own:
+
+```bash
+curl -fsSL .../install/bootstrap.sh | bash -s -- --greeter --dir ~/src/neobrix
+```
+
+**Two things it will not do behind your back.**
+
+*Another desktop already installed* — it looks for Noctalia, Caelestia,
+end-4/dots-hyprland, ML4W, other Quickshell configs, and units that would fight
+this shell (a second bar, a second notification daemon). It **lists** what it
+finds and then asks about **each item separately**; the default answer is always
+keep, a run with `--yes` or with no terminal removes nothing at all, and anything
+it does move is copied to `~/.config-backup/` first. Units are disabled rather
+than uninstalled, because that is reversible; package removal is a separate
+question asked last.
+
+*The login screen* — untouched unless you ask. A greeter that fails to start
+means you cannot log in, so it comes last, after the desktop is in place, and it
+goes through `deploy.sh --greeter`, which writes `/etc/greetd/RECOVERY` and keeps
+an `agreety` fallback **before** anything changes. It stages only: the live
+`config.toml` is not replaced and `greetd` is not enabled. See
+[Login screen](#login-screen).
+
+To undo everything:
+
+```bash
+~/Projects/neobrix/install/bootstrap.sh --uninstall
+```
+
 ## What this is
 
 Neobrix combines bold geometry, strong borders, hard shadows and modular
@@ -227,11 +294,9 @@ script.
 
 `./install/deploy.sh --greeter` does the same thing as part of a deploy, plus it
 writes `RECOVERY` and both greetd configs into `/etc/greetd`. It **stages** only:
-`config.toml` is never replaced and `greetd` is never enabled, because a greeter
-that fails to come up leaves no way to log in. Preview with `regreet --demo`
-first, then activate by hand from a TTY — the script prints both commands. Every
-other part of `deploy.sh` stays inside `$HOME` and needs no root; this is the one
-flag that calls `sudo`.
+`config.toml` is never replaced and `greetd` is never enabled. Every other part of
+`deploy.sh` stays inside `$HOME` and needs no root; this is the one flag that
+calls `sudo`.
 
 The wallpaper is copied to `/usr/share/backgrounds/neobrix/` because the greeter
 runs as the `greeter` user and cannot read `$HOME`.
@@ -377,10 +442,14 @@ Look: `ttf-jetbrains-mono-nerd` `papirus-icon-theme` `adw-gtk-theme` `qt5ct`
 `qt6ct` `adwaita-cursors`.
 Apps: `alacritty` `dolphin` `zen-browser-bin`.
 
-## Installation
+## Manual installation
+
+The [one-liner](#install) does exactly this, with the conflict and greeter
+questions wrapped around it. Doing it by hand is equivalent, and lets you run the
+`--dry-run` first:
 
 ```bash
-git clone <this repo> ~/Projects/neobrix
+git clone https://github.com/asad-albadi/NeoBrix.git ~/Projects/neobrix
 cd ~/Projects/neobrix
 ./install/packages.sh
 ./install/deploy.sh --dry-run     # inspect first
@@ -405,6 +474,14 @@ Then log out and back in. To apply most of it without logging out:
 ```bash
 hyprctl reload
 systemctl --user restart neobrix-session.target
+```
+
+To reverse a deployment — units disabled, symlinks removed, the newest
+`~/.config-backup/deploy-*` restored, and a printed list of what it deliberately
+left behind:
+
+```bash
+./install/uninstall.sh
 ```
 
 ## Updating
