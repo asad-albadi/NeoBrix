@@ -80,6 +80,7 @@ GREETER=(
 # ── applications ────────────────────────────────────────────────────────────
 APPS=(
     kitty          # the terminal SUPER+RETURN opens
+    fish           # the shell it opens; see terminal/fish/config.fish
     dolphin
 )
 

@@ -449,6 +449,21 @@ When pasting the fixes, add them at the **top** of the Dev Tools box followed by
 `====` separator line and keep everything below. Replacing the whole box discards
 every built-in site fix Dark Reader ships.
 
+### Terminal and shell
+
+`SUPER+RETURN` opens **kitty**, and kitty opens **fish**. The shell is set in
+`terminal/kitty/kitty.conf` rather than with `chsh`, so every terminal window is
+fish while the account's login shell is left exactly as it was — that is the
+user's own decision, and a login shell that goes wrong is awkward to undo from a
+desktop that has just changed underneath them. To make it the login shell too:
+
+```sh
+chsh -s /usr/bin/fish
+```
+
+The alacritty config is still shipped and still themed, for anyone who prefers
+it; it is simply no longer what the keybind opens.
+
 ### Terminal greeting
 
 `fish_greeting` runs `fastfetch`, configured by `terminal/fastfetch/config.jsonc`
@@ -494,7 +509,7 @@ Utilities: `wl-clipboard` `cliphist` `grim` `slurp` `satty` `brightnessctl`
 `libnotify` `imagemagick` `librsvg` `python`.
 Look: `ttf-jetbrains-mono-nerd` `papirus-icon-theme` `adw-gtk-theme` `qt5ct`
 `qt6ct` `adwaita-cursors`.
-Apps: `kitty` `dolphin`.
+Apps: `kitty` `fish` `dolphin`.
 Optional, not in Arch's official repositories: `zen-browser-bin` `cursor-bin`
 (both in the `cachyos` repo; AUR on plain Arch). Skipped automatically when
 unavailable — the browser and IDE keybinds simply point at what you do have.
@@ -753,7 +768,7 @@ neobrix/
 │   ├── Notifications/     toasts, history, level OSD
 │   ├── Services/          singletons wrapping the native integrations
 │   └── Wallpaper/
-├── terminal/              kitty, fastfetch, alacritty
+├── terminal/              kitty, fish, fastfetch, alacritty
 ├── theming/darkreader/    importable Dark Reader config (generated)
 ├── greeter/               login screen: regreet css/toml + greetd config
 ├── scripts/               neobrix, -theme, -wallpaper, -screenshot,

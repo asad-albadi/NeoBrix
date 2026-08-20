@@ -92,7 +92,7 @@ fi
 # ── dependency check ─────────────────────────────────────────────────────────
 REQUIRED=(qs hyprctl hyprlock hypridle grim slurp wl-copy cliphist
           notify-send wpctl magick)
-OPTIONAL=(satty hyprpicker brightnessctl zen-browser dolphin kitty)
+OPTIONAL=(satty hyprpicker brightnessctl zen-browser dolphin kitty fish)
 
 info "checking dependencies"
 missing=()
@@ -319,6 +319,7 @@ link uwsm/env              "$CFG/uwsm/env"
 link terminal/alacritty/alacritty.toml "$CFG/alacritty/alacritty.toml"
 link terminal/kitty/kitty.conf         "$CFG/kitty/kitty.conf"
 link terminal/fastfetch/config.jsonc   "$CFG/fastfetch/config.jsonc"
+link terminal/fish/config.fish         "$CFG/fish/config.fish"
 # GTK, Qt and KDE colours are *generated* by neobrix-theme rather than linked:
 # they must follow the shell's light/dark mode, and KDE applications write to
 # kdeglobals themselves — a symlink there gets rewritten and the theme drifts

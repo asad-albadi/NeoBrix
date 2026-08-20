@@ -29,7 +29,7 @@ when the machine actually has a backlight.
 
 | Keys | Action |
 |---|---|
-| `Super` `Return` | Terminal (kitty) |
+| `Super` `Return` | Terminal (kitty, running fish) |
 | `Super` `E` | File manager (dolphin) |
 | `Super` `W` | Browser (Zen) |
 | `Super` `T` | Text editor (quick edits) |
