@@ -1,4 +1,8 @@
-// "System Specs" — a 2×3 grid of badge tiles, as in the Neobrix dashboard.
+// "System Specs" — a grid of badge tiles, as in the Neobrix dashboard.
+//
+// Software above, hardware below. Uptime is not here: the middle column of the
+// tab already carries it, and temperature belongs with the things that move,
+// which is ResourcesCard.
 
 import QtQuick
 import QtQuick.Layouts
@@ -35,11 +39,10 @@ BrixCard {
             rowSpacing: Theme.spaceXs
             columnSpacing: Theme.spaceXs
 
-            Spec { label: "OS";    value: SysInfo.distro;   glyph: "󰣇"; accent: Theme.primary }
-            Spec { label: "WM";    value: "Hyprland";       glyph: "󰖯"; accent: Theme.info }
-            Spec { label: "KERNEL"; value: SysInfo.kernel;  glyph: "󰌽"; accent: Theme.tertiary }
-            Spec { label: "SHELL"; value: SysInfo.shellName; glyph: "󰆍"; accent: Theme.secondary }
-            Spec { label: "UPTIME"; value: SysInfo.uptimeText; glyph: "󰅐"; accent: Theme.pink }
+            Spec { label: "OS";     value: SysInfo.distro;    glyph: "󰣇"; accent: Theme.primary }
+            Spec { label: "WM";     value: "Hyprland";        glyph: "󰖯"; accent: Theme.info }
+            Spec { label: "KERNEL"; value: SysInfo.kernel;    glyph: "󰌽"; accent: Theme.tertiary }
+            Spec { label: "SHELL";  value: SysInfo.shellName; glyph: "󰆍"; accent: Theme.secondary }
             Spec {
                 label: "PACKAGES"
                 value: SysInfo.packageCount > 0 ? String(SysInfo.packageCount) : "—"
@@ -47,11 +50,39 @@ BrixCard {
                 accent: Theme.warning
             }
             Spec {
-                visible: Hw.hasTemperature
-                label: "TEMP"
-                value: SysInfo.temperature > 0 ? SysInfo.temperature.toFixed(0) + "°C" : "—"
-                glyph: "󰔏"
+                label: "MEMORY"
+                value: SysInfo.memTotalGiB > 0
+                       ? Math.round(SysInfo.memTotalGiB) + " GiB" : "—"
+                glyph: "󰍛"
+                accent: Theme.pink
+            }
+
+            // Hardware. Each is absent rather than "—" when the probe found
+            // nothing: a machine with no DMI model, or without pciutils for a
+            // GPU name, should not be told about a tile it cannot fill.
+            Spec {
+                visible: SysInfo.cpuModel !== ""
+                Layout.columnSpan: 2
+                label: SysInfo.cpuThreads > 0 ? "CPU · " + SysInfo.cpuThreads + " THREADS" : "CPU"
+                value: SysInfo.cpuModel
+                glyph: "󰻠"
                 accent: Theme.error
+            }
+            Spec {
+                visible: SysInfo.gpuModel !== ""
+                Layout.columnSpan: 2
+                label: "GPU"
+                value: SysInfo.gpuModel
+                glyph: "󰢮"
+                accent: Theme.info
+            }
+            Spec {
+                visible: SysInfo.machineModel !== ""
+                Layout.columnSpan: 2
+                label: "MACHINE"
+                value: SysInfo.machineModel
+                glyph: "󰌢"
+                accent: Theme.secondary
             }
         }
 
