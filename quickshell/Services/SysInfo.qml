@@ -252,21 +252,48 @@ Singleton {
         }
     }
 
-    // GPU and machine model. lspci gives a name a person recognises but is not
-    // a dependency of this project, so the driver from sysfs is the fallback —
-    // less informative, always there.
+    // GPU and machine model.
+    //
+    // A laptop with switchable graphics has two display devices and both report
+    // as "VGA compatible controller", so the class does not separate them —
+    // taking the first match named the integrated one while a discrete GPU sat
+    // beside it. boot_vga does separate them: it is 1 on the device the firmware
+    // brought up, which is the integrated one. So the card that is *not* the
+    // boot device wins, and the boot device is the fallback for machines with
+    // only one.
+    //
+    // lspci gives a name a person recognises but is not a dependency of this
+    // project; the sysfs driver is the fallback, so a machine without pciutils
+    // reads "nvidia" rather than nothing. simpledrm and vkms are skipped —
+    // neither is hardware anyone means by "GPU".
     Process {
         command: ["sh", "-c",
-            "gpu=$(lspci -mm 2>/dev/null | awk -F'\"' '/VGA|Display|3D/{print $6; exit}');" +
-            "[ -n \"$gpu\" ] || gpu=$(sed -n 's/^DRIVER=//p' /sys/class/drm/card*/device/uevent 2>/dev/null | head -1);" +
-            "printf '%s\\n%s\\n' \"$gpu\" \"$(cat /sys/class/dmi/id/product_name 2>/dev/null)\""]
+            "pa=; pv=; fa=; fv=;" +
+            "for d in /sys/class/drm/card*; do " +
+              "case ${d##*/} in *-*) continue ;; esac;" +
+              "[ -e $d/device ] || continue;" +
+              "a=$(basename $(readlink -f $d/device)); a=${a#0000:};" +
+              "v=$(basename $(readlink -f $d/device/driver 2>/dev/null) 2>/dev/null);" +
+              "case $v in simpledrm|vkms) continue ;; esac;" +
+              "[ x$v = x ] && continue;" +
+              "[ x$fa = x ] && { fa=$a; fv=$v; };" +
+              "[ x$pa = x ] && [ $(cat $d/device/boot_vga 2>/dev/null || echo 0) = 0 ] " +
+                "&& { pa=$a; pv=$v; };" +
+            "done;" +
+            "[ x$pa = x ] && { pa=$fa; pv=$fv; };" +
+            // The PCI address contains colons, so it cannot be packed into one
+            // variable with a colon separator — that truncated 01:00.0 to 01
+            // and looked up the wrong device.
+            "n=$(lspci -mms $pa 2>/dev/null | tr '\\042' '\\n' | sed -n 6p);" +
+            "[ x\"$n\" = x ] && n=$pv;" +
+            "printf '%s\\n%s\\n' \"$n\" \"$(cat /sys/class/dmi/id/product_name 2>/dev/null)\""]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
                 const l = text.split("\n");
                 let gpu = (l[0] || "").trim();
-                // "TigerLake-LP GT2 [Iris Xe Graphics]" — the bracketed part is
-                // the name the machine is sold under; the rest is the die.
+                // "GA107M [GeForce RTX 3050 Mobile]" — the bracketed part is the
+                // name the machine is sold under; the rest is the die.
                 const br = gpu.match(/\[([^\]]+)\]/);
                 if (br) gpu = br[1].trim();
                 root.gpuModel = gpu;
