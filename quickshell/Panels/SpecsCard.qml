@@ -1,8 +1,8 @@
 // "System Specs" — a grid of badge tiles, as in the Neobrix dashboard.
 //
-// Software above, hardware below. Uptime is not here: the middle column of the
-// tab already carries it, and temperature belongs with the things that move,
-// which is ResourcesCard.
+// Software above, hardware below. What is not here: uptime, which the middle
+// column of the tab already carries; temperature and total memory, which
+// ResourcesCard shows against what is actually in use.
 
 import QtQuick
 import QtQuick.Layouts
@@ -44,17 +44,13 @@ BrixCard {
             Spec { label: "KERNEL"; value: SysInfo.kernel;    glyph: "󰌽"; accent: Theme.tertiary }
             Spec { label: "SHELL";  value: SysInfo.shellName; glyph: "󰆍"; accent: Theme.secondary }
             Spec {
+                // Spans, because it is the odd one out of the half-width tiles
+                // and a hole beside it reads as something failing to load.
+                Layout.columnSpan: 2
                 label: "PACKAGES"
                 value: SysInfo.packageCount > 0 ? String(SysInfo.packageCount) : "—"
                 glyph: "󰏖"
                 accent: Theme.warning
-            }
-            Spec {
-                label: "MEMORY"
-                value: SysInfo.memTotalGiB > 0
-                       ? Math.round(SysInfo.memTotalGiB) + " GiB" : "—"
-                glyph: "󰍛"
-                accent: Theme.pink
             }
 
             // Hardware. Each is absent rather than "—" when the probe found
