@@ -52,7 +52,7 @@ when the machine actually has a backlight.
 | `Super` `Shift` `Escape` | Interactive kill |
 | `Super` `←↑↓→` / `H` `K` `;` `L` | Move focus |
 | `Super` `Shift` `←↑↓→` / `H` `K` `;` `L` | Move window |
-| `Super` `Ctrl` `←↑↓→` | Resize window (repeats) |
+| `Super` `Ctrl` `Shift` `←↑↓→` | Resize window (repeats) |
 | `Alt` `Tab` / `Alt` `Shift` `Tab` | Cycle windows |
 | `Super` + left-drag | Move window |
 | `Super` + right-drag | Resize window |
@@ -64,6 +64,7 @@ when the machine actually has a backlight.
 | `Super` `1`…`0` | Switch to workspace 1–10 |
 | `Super` `Shift` `1`…`0` | Move window to workspace (silently) |
 | `Super` `Tab` | Previous workspace (tracked from the `workspace.active` event, so it follows bar clicks too) |
+| `Super` `Ctrl` `←` / `→` | Previous / next existing workspace |
 | `Super` `Ctrl` `Tab` | Next existing workspace |
 | `Super` + scroll | Previous / next workspace |
 | `Super` `S` | Toggle scratchpad |

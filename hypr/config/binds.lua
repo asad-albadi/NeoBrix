@@ -71,11 +71,16 @@ return function(ctx)
     hl.bind("ALT + SHIFT + TAB", hl.dsp.window.cycle_next({ prev = true }))
 
     -- Resize with the arrows, repeating while held.
+    --
+    -- SUPER+CONTROL+SHIFT, because the two easier homes are taken: CONTROL+
+    -- arrows now walks the workspaces below, and ALT+arrows is media and volume
+    -- further down this file. Adding SHIFT is the only combination left that
+    -- collides with nothing.
     local RESIZE = {
         { "left", { -40, 0 } }, { "right", { 40, 0 } },
         { "up",   { 0, -40 } }, { "down",  { 0, 40 } },
     }
-    helpers.pairs_bind(mod .. " + CONTROL", RESIZE, function(delta)
+    helpers.pairs_bind(mod .. " + CONTROL + SHIFT", RESIZE, function(delta)
         return hl.dsp.window.resize({ x = delta[1], y = delta[2] })
     end, { repeating = true })
 
@@ -92,9 +97,13 @@ return function(ctx)
         hl.bind(mod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i, silent = true }))
     end
 
-    hl.bind(mod .. " + CONTROL + TAB", hl.dsp.focus({ workspace = "e+1" }))
-    hl.bind(mod .. " + mouse_down",    hl.dsp.focus({ workspace = "e+1" }))
-    hl.bind(mod .. " + mouse_up",      hl.dsp.focus({ workspace = "e-1" }))
+    -- e-1/e+1 rather than -1/+1, matching the wheel and CONTROL+TAB: it steps
+    -- between workspaces that exist instead of walking into empty ones.
+    hl.bind(mod .. " + CONTROL + left",  hl.dsp.focus({ workspace = "e-1" }))
+    hl.bind(mod .. " + CONTROL + right", hl.dsp.focus({ workspace = "e+1" }))
+    hl.bind(mod .. " + CONTROL + TAB",   hl.dsp.focus({ workspace = "e+1" }))
+    hl.bind(mod .. " + mouse_down",      hl.dsp.focus({ workspace = "e+1" }))
+    hl.bind(mod .. " + mouse_up",        hl.dsp.focus({ workspace = "e-1" }))
 
     -- "Go back to where I was". Hyprland's Lua workspace parser has no
     -- "previous" token, so the last workspace is tracked from the event stream —
