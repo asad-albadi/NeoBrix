@@ -31,11 +31,21 @@ Singleton {
     readonly property string sinkName: sink ? (sink.nickname || sink.description || sink.name) : "No output"
     readonly property string sourceName: source ? (source.nickname || source.description || source.name) : "No input"
 
-    // All sinks/sources present on the graph, for the output picker.
+    // All sinks/sources present on the graph, for the device pickers.
     readonly property var sinks: {
         const out = [];
         for (const n of Pipewire.nodes.values)
             if (n.isSink && !n.isStream && n.audio) out.push(n);
+        return out;
+    }
+
+    // isSink is false for a source, but so is it for every stream — hence the
+    // same !isStream guard as above, or every application recording audio would
+    // be offered as an input device.
+    readonly property var sources: {
+        const out = [];
+        for (const n of Pipewire.nodes.values)
+            if (!n.isSink && !n.isStream && n.audio) out.push(n);
         return out;
     }
 
@@ -62,6 +72,7 @@ Singleton {
     function toggleMicMute() { if (hasSource) source.audio.muted = !source.audio.muted; }
 
     function setDefaultSink(node) { Pipewire.preferredDefaultAudioSink = node; }
+    function setDefaultSource(node) { Pipewire.preferredDefaultAudioSource = node; }
 
     // Binds the objects we actually read. Without this their `audio` property
     // stays null.
@@ -71,7 +82,7 @@ Singleton {
             if (Pipewire.defaultAudioSink) objs.push(Pipewire.defaultAudioSink);
             if (Pipewire.defaultAudioSource) objs.push(Pipewire.defaultAudioSource);
             for (const n of Pipewire.nodes.values)
-                if (n.isSink && !n.isStream) objs.push(n);
+                if (!n.isStream) objs.push(n);
             return objs;
         }
     }
