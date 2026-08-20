@@ -96,7 +96,16 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onEntered: root.hovered()
+        // Movement, not entry. While the arrows drive the list, rows scroll
+        // under a stationary pointer, and each one entering it fired `hovered`,
+        // which pulled the selection back to whatever was under the mouse. The
+        // keyboard then moved it on again, so the highlight flipped between two
+        // rows several times a second — a strobe between the accent and the
+        // background, for as long as a key was held.
+        //
+        // Requiring the pointer to actually move means hover follows the mouse
+        // rather than the list moving beneath it.
+        onPositionChanged: root.hovered()
         onClicked: root.activated()
     }
 }
