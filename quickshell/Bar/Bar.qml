@@ -147,20 +147,25 @@ PanelWindow {
 
                 Indicators { Layout.preferredWidth: implicitWidth }
 
+                // The bell lives in the segment with the other indicators now:
+                // each of them opens its own control, so the island at the end
+                // is free for the one button that still opens a whole panel.
+                NotifButton { Layout.preferredWidth: implicitWidth }
+
                 // Clock pill — the lavender chip from the Neobrix previews.
                 ClockPill {}
             }
         }
 
-        // Separate notification island, accent-filled as in the reference.
+        // Separate island, accent-filled as in the reference.
         BrixCard {
             Layout.preferredHeight: Theme.barIslandHeight
             Layout.preferredWidth: Theme.barIslandHeight
             radius: Theme.radiusMd
-            color: Notifs.hasUnread ? Theme.error : Theme.pink
+            color: Panels.isOpen("control") ? Theme.primary : Theme.pink
             shadowOffset: Theme.shadowMd
 
-            NotifButton { anchors.centerIn: parent }
+            ControlButton { anchors.centerIn: parent }
         }
     }
 }
