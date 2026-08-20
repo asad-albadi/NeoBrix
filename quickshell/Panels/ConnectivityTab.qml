@@ -26,6 +26,15 @@ Item {
     // Set by ControlCenter to (panel open && this tab selected).
     property bool active: false
 
+    // "all" for the control centre, "wifi" or "bluetooth" for the bar popovers.
+    //
+    // A display mode rather than two extracted copies of these lists: the
+    // popover and the tab instantiate the same component, so a fix lands in
+    // both. The click-handling bug in these rows was worth fixing once.
+    property string show: "all"
+    readonly property bool showWifi: root.show === "all" || root.show === "wifi"
+    readonly property bool showBt: root.show === "all" || root.show === "bluetooth"
+
     // Scanning costs power, so it runs only while this tab is actually on
     // screen. beginScan/endScan are reference-counted in Net, so the two calls
     // have to stay paired — hence the destruction guard.
@@ -145,6 +154,7 @@ Item {
 
         // ── active link ─────────────────────────────────────────────────────
         BrixCard {
+            visible: root.show !== "bluetooth"
             Layout.fillWidth: true
             Layout.preferredHeight: 66
             radius: Theme.radiusMd
@@ -231,7 +241,7 @@ Item {
 
             // ── Wi-Fi ───────────────────────────────────────────────────────
             BrixCard {
-                visible: Net.hasWifi
+                visible: root.showWifi && Net.hasWifi
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: Theme.radiusMd
@@ -658,7 +668,7 @@ Item {
 
             // ── Bluetooth ───────────────────────────────────────────────────
             BrixCard {
-                visible: Bt.available
+                visible: root.showBt && Bt.available
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: Theme.radiusMd
