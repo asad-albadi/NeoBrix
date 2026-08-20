@@ -64,11 +64,9 @@ Item {
             glyph: Bt.icon
             color: Bt.enabled ? Theme.foreground : Theme.foregroundDim
             tooltip: "Bluetooth · " + Bt.statusText
-            // No popover yet: the device list it would render lives in
-            // ConnectivityTab, which does not yet know how to show one radio on
-            // its own. Until it does, this opens the tab that has the list.
-            onClicked: Panels.openControl("connectivity")
+            popover: "bluetooth"
             onMiddleClicked: Bt.toggle()
+            onRightClicked: Panels.openControl("connectivity")
         }
 
         // ── network ─────────────────────────────────────────────────────────
@@ -77,7 +75,8 @@ Item {
             color: Net.connected ? (Net.online ? Theme.foreground : Theme.warning) : Theme.error
             tooltip: Net.typeLabel + " · " + Net.connectionName
                      + (Net.connected ? "\n" + Net.interfaceName + "  " + Net.ipv4 : "")
-            onClicked: Panels.openControl("connectivity")
+            popover: "network"
+            onRightClicked: Panels.openControl("connectivity")
         }
 
         // ── battery (hidden on desktops/VMs) ────────────────────────────────
