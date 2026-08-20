@@ -46,6 +46,16 @@ Singleton {
     property string shellName: ""
     property int packageCount: 0
 
+    // ── hardware ────────────────────────────────────────────────────────────
+    property string cpuModel: ""
+    property int cpuThreads: 0
+    property string gpuModel: ""
+    property string machineModel: ""
+
+    // ── network throughput, bytes/s ─────────────────────────────────────────
+    property real netRxRate: 0
+    property real netTxRate: 0
+
     readonly property string uptimeText: {
         const s = uptimeSeconds;
         if (s <= 0) return "—";
@@ -59,6 +69,26 @@ Singleton {
 
     function fmtGiB(v) { return v.toFixed(1) + "G"; }
 
+    function fmtRate(bps) {
+        if (bps < 1024) return Math.round(bps) + " B/s";
+        if (bps < 1048576) return (bps / 1024).toFixed(bps < 10240 ? 1 : 0) + " K/s";
+        return (bps / 1048576).toFixed(bps < 10485760 ? 1 : 0) + " M/s";
+    }
+
+    // Vendors write their marketing into the model string: registered-mark
+    // glyphs, the word CPU, and a clock speed that is nominal anyway and reads
+    // as current when it is not. What is left is the part that identifies the
+    // chip.
+    function tidyCpu(s) {
+        return s.replace(/\((R|TM|r|tm)\)/g, "")
+                .replace(/\bCPU\b/g, "")
+                .replace(/\bProcessor\b/gi, "")
+                .replace(/\s+with\s+.*$/i, "")
+                .replace(/@.*$/, "")
+                .replace(/\s{2,}/g, " ")
+                .trim();
+    }
+
     // ── sampling ────────────────────────────────────────────────────────────
     property var _prevCpu: null
 
@@ -71,6 +101,7 @@ Singleton {
             statFile.reload();
             memFile.reload();
             uptimeFile.reload();
+            netFile.reload();
             if (Hw.hasTemperature) tempFile.reload();
         }
     }
@@ -130,6 +161,55 @@ Singleton {
         onLoaded: root.uptimeSeconds = Math.floor(parseFloat(text().split(" ")[0]) || 0)
     }
 
+    property var _prevNet: null
+
+    FileView {
+        id: netFile
+        path: "/proc/net/dev"
+        onLoaded: {
+            let rx = 0, tx = 0;
+            for (const line of text().split("\n")) {
+                const m = line.match(/^\s*([\w.-]+):\s*(.*)$/);
+                if (!m) continue;
+                // Loopback is not traffic. Bridges, veths, container and VPN
+                // interfaces carry bytes that also cross a real interface, so
+                // counting them reports two to four times the actual rate.
+                if (/^(lo|docker|br-|veth|virbr|zt|tun|tap|wg)/.test(m[1])) continue;
+                const f = m[2].trim().split(/\s+/).map(Number);
+                rx += f[0] || 0;
+                tx += f[8] || 0;
+            }
+            const now = Date.now();
+            if (root._prevNet) {
+                const dt = (now - root._prevNet.t) / 1000;
+                // Counters reset when an interface goes away, which would
+                // otherwise read as one enormous spike.
+                if (dt > 0 && rx >= root._prevNet.rx && tx >= root._prevNet.tx) {
+                    root.netRxRate = (rx - root._prevNet.rx) / dt;
+                    root.netTxRate = (tx - root._prevNet.tx) / dt;
+                }
+            }
+            root._prevNet = { rx: rx, tx: tx, t: now };
+        }
+    }
+
+    FileView {
+        id: cpuinfoFile
+        path: "/proc/cpuinfo"
+        onLoaded: {
+            let model = "", threads = 0;
+            for (const line of text().split("\n")) {
+                if (!model) {
+                    const m = line.match(/^model name\s*:\s*(.+)$/);
+                    if (m) model = m[1];
+                }
+                if (/^processor\s*:/.test(line)) threads++;
+            }
+            root.cpuThreads = threads;
+            root.cpuModel = root.tidyCpu(model);
+        }
+    }
+
     FileView {
         id: tempFile
         path: Hw.temperaturePath
@@ -168,6 +248,35 @@ Singleton {
                 root.kernel = (l[1] || "").trim();
                 root.distro = (l[2] || "").trim();
                 root.shellName = (l[3] || "").trim();
+            }
+        }
+    }
+
+    // GPU and machine model. lspci gives a name a person recognises but is not
+    // a dependency of this project, so the driver from sysfs is the fallback —
+    // less informative, always there.
+    Process {
+        command: ["sh", "-c",
+            "gpu=$(lspci -mm 2>/dev/null | awk -F'\"' '/VGA|Display|3D/{print $6; exit}');" +
+            "[ -n \"$gpu\" ] || gpu=$(sed -n 's/^DRIVER=//p' /sys/class/drm/card*/device/uevent 2>/dev/null | head -1);" +
+            "printf '%s\\n%s\\n' \"$gpu\" \"$(cat /sys/class/dmi/id/product_name 2>/dev/null)\""]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const l = text.split("\n");
+                let gpu = (l[0] || "").trim();
+                // "TigerLake-LP GT2 [Iris Xe Graphics]" — the bracketed part is
+                // the name the machine is sold under; the rest is the die.
+                const br = gpu.match(/\[([^\]]+)\]/);
+                if (br) gpu = br[1].trim();
+                root.gpuModel = gpu;
+
+                // DMI is free text and often repeats the board code
+                // ("FX516PC_FX516PC"), or is a placeholder nobody filled in.
+                let model = (l[1] || "").trim().split("_")[0].trim();
+                if (/^(to be filled|system product|default string|none|n\/a)/i.test(model))
+                    model = "";
+                root.machineModel = model;
             }
         }
     }
