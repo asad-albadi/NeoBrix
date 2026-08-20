@@ -64,6 +64,7 @@ ShellRoot {
     PowerPopover {}
     NetPopover {}
     BtPopover {}
+    NotifPopover {}
 
     // Toast layer and level OSD.
     NotificationLayer {}

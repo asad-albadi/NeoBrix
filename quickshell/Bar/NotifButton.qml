@@ -1,4 +1,5 @@
-// Notification bell with unread badge. Opens the notification centre.
+// Notification bell with unread badge. Opens its own popover, hanging under
+// itself, now that it sits in the bar segment with the other indicators.
 
 import QtQuick
 import Quickshell
@@ -12,13 +13,20 @@ Item {
     implicitWidth: 22
     implicitHeight: 22
 
+    readonly property bool popoverOpen: Panels.isOpen("notifications")
+
+    // Computed on click, not bound: mapToItem is not a dependency QML can
+    // track, so as a binding it would answer with the position the item had
+    // before the layout ran — which is 0, against the left of the screen.
+    function centreX() { return root.mapToItem(null, root.width / 2, 0).x; }
+
     Text {
         anchors.centerIn: parent
         text: Notifs.doNotDisturb ? "󰂛" : (Notifs.hasUnread ? "󱅫" : "󰂚")
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fontLg
-        color: Notifs.doNotDisturb ? Theme.foregroundDim
-             : Notifs.hasUnread ? Theme.foreground : Theme.foreground
+        color: root.popoverOpen ? Theme.primary
+             : Notifs.doNotDisturb ? Theme.foregroundDim : Theme.foreground
         opacity: mouse.containsMouse ? 0.65 : 1
         Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
     }
@@ -59,8 +67,7 @@ Item {
             } else if (mev.button === Qt.MiddleButton) {
                 Notifs.clearHistory();
             } else {
-                Panels.toggleControl("notifications");
-                Notifs.markAllRead();
+                Panels.togglePopover("notifications", root.centreX());
             }
         }
     }
@@ -72,7 +79,7 @@ Item {
                  ? Notifs.count + " notification" + (Notifs.count === 1 ? "" : "s")
                    + "  ·  middle-click clears"
                  : "No notifications")
-        visible: mouse.containsMouse
+        visible: mouse.containsMouse && !root.popoverOpen
         anchorItem: root
     }
 }
