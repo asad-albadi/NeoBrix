@@ -48,11 +48,8 @@ Item {
     // not — its desktop entry is what knows the icon. heuristicLookup is the
     // fuzzy class-to-entry match built for exactly this, with the class itself
     // as the fallback and a generic icon behind that.
-    function iconFor(toplevel) {
-        if (!toplevel) return "";
-        const ipc = toplevel.lastIpcObject;
-        const cls = ipc && ipc.class ? ipc.class : "";
-        if (cls === "") return "";
+    function iconFor(cls) {
+        if (!cls) return "";
         const entry = DesktopEntries.heuristicLookup(cls);
         return Quickshell.iconPath(entry && entry.icon ? entry.icon : cls,
                                    "application-x-executable");
@@ -148,11 +145,28 @@ Item {
                                 Layout.preferredWidth: 12
                                 Layout.preferredHeight: 12
 
+                                readonly property var toplevel:
+                                    slot.wins.length > mark.index ? slot.wins[mark.index] : null
+                                // The wayland app id arrives with the window and
+                                // notifies when it changes. lastIpcObject is what
+                                // its name says — the last object from a full
+                                // client query — so for a window that has just
+                                // opened it is still empty, which is exactly why
+                                // a new window's chip grew with no icon in it.
+                                // It stays as the fallback, for anything the
+                                // wayland handle does not name.
+                                readonly property string cls: {
+                                    if (!mark.toplevel) return "";
+                                    const wl = mark.toplevel.wayland;
+                                    if (wl && wl.appId) return wl.appId;
+                                    const ipc = mark.toplevel.lastIpcObject;
+                                    return ipc && ipc.class ? ipc.class : "";
+                                }
+
                                 IconImage {
                                     visible: !mark.isCount
                                     anchors.fill: parent
-                                    source: mark.isCount
-                                            ? "" : root.iconFor(slot.wins[mark.index])
+                                    source: mark.isCount ? "" : root.iconFor(mark.cls)
                                 }
 
                                 Text {
