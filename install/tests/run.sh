@@ -36,16 +36,12 @@ case "${1:-}" in
     *) echo "usage: $0 [--container|--container-only]" >&2; exit 2 ;;
 esac
 
-c_ok=$'\033[32m'; c_err=$'\033[31m'; c_warn=$'\033[33m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
-PASS=0; FAIL=0; SKIP=0; KNOWN=0
+c_ok=$'\033[32m'; c_err=$'\033[31m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
+PASS=0; FAIL=0; SKIP=0
 case_() { printf '\n%s──%s %s\n' "$c_dim" "$c_off" "$1"; }
 ok()   { PASS=$((PASS+1)); printf '  %sPASS%s %s\n' "$c_ok"  "$c_off" "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  %sFAIL%s %s\n' "$c_err" "$c_off" "$1"; }
 skip() { SKIP=$((SKIP+1)); printf '  %sSKIP%s %s\n' "$c_dim" "$c_off" "$1"; }
-# A failure that is understood, is somebody else's to fix, and is not this
-# suite's own breakage. Loud, counted, and does not turn the run red — but
-# narrowly matched, so a *different* failure at the same point still fails.
-known() { KNOWN=$((KNOWN+1)); printf '  %sKNOWN%s %s\n' "$c_warn" "$c_off" "$1"; }
 
 # assert_eq <what> <expected> <actual>
 assert_eq() {
@@ -132,19 +128,29 @@ test_piped_stdin() {
     assert_has    "it reached the last step"       "Neobrix is deployed" "$out"
 
     # A test that cannot fail on the unfixed code is not evidence of anything.
-    # This is the same fixture against the bootstrap.sh on origin/main, and it
-    # is here to be seen failing the assertions above.
-    case_ "piped stdin: the same fixture catches the bug on origin/main"
-    local old="$TMP/old-bootstrap.sh"
-    if ! git -C "$REPO" show origin/main:install/bootstrap.sh > "$old" 2>/dev/null; then
-        skip "origin/main is not fetched here, so there is nothing to compare against"
+    # This runs the same fixture against the last bootstrap.sh that still had the
+    # bug, and is here to be seen failing the assertions above.
+    #
+    # Found by asking git which commit introduced the fix and taking its parent,
+    # rather than by reading origin/main. Pinned to origin/main this case
+    # quietly stopped running the moment the fix was pushed — it reported SKIP,
+    # the suite stayed green, and the same commit then produced different
+    # assertion counts on two machines depending on what each had fetched.
+    # A control that disappears when the thing it controls for is fixed is a
+    # control that is absent exactly when nobody is looking.
+    case_ "piped stdin: the same fixture catches the bug in the code it fixed"
+    local old="$TMP/old-bootstrap.sh" rev
+    rev="$(git -C "$REPO" log --format=%H -S'NB_CHILD_STDIN' --reverse -- install/bootstrap.sh | head -1)"
+    if [[ -z $rev ]] || ! git -C "$REPO" show "$rev^:install/bootstrap.sh" > "$old" 2>/dev/null; then
+        skip "cannot find the pre-fix bootstrap.sh in this repository's history"
         return
     fi
+    printf '  %sagainst%s %s\n' "$c_dim" "$c_off" "$(git -C "$REPO" log --oneline -1 "$rev^")"
     local d2="$TMP/stdin-old"; mkdir -p "$d2"
     stdin_fixture "$d2"
     local before; before="$(piped_run "$d2" "$old")"
     if [[ "$before" == *"CHILD-READ[EOF]"* ]]; then
-        skip "origin/main does not show the bug (already fixed upstream?)"
+        bad "the pre-fix bootstrap.sh does not show the bug — this control is broken"
     else
         # This stub reads one line, so one line of the installer goes missing.
         # Real pacman reads in blocks and took everything below the packages
@@ -187,29 +193,35 @@ EOF
     return 0
 }
 
-# origin_case <name> <origin-url> <NEOBRIX_REPO> <keep|repoint>
+# origin_case <name> <origin-url> <NEOBRIX_REPO> <keep|refuse>
 origin_case() {
     local name="$1" origin="$2" repo="$3" want="$4"
     case_ "origin: $name"
     local d; d="$(mktemp -d "$TMP/origin.XXXX")"
     fake_clone "$d/clone" "$d/upstream.git" "$origin"
-    local before after out
+    local before after out ec
     before="$(git -C "$d/clone" remote get-url origin 2>/dev/null || echo NONE)"
     # BatchMode/GIT_TERMINAL_PROMPT: never sit waiting on a credential prompt for
     # a URL that is only here to be compared. Whether the pull then succeeds is
     # beside the point — every assertion below is on output printed before it.
     out="$(cat "$BOOTSTRAP" | env -i PATH="$PATH" HOME="$d/home" \
         GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=3' \
-        NEOBRIX_DIR="$d/clone" NEOBRIX_REPO="$repo" bash -s -- --yes 2>&1)"
+        NEOBRIX_DIR="$d/clone" NEOBRIX_REPO="$repo" bash -s -- --yes 2>&1)"; ec=$?
     after="$(git -C "$d/clone" remote get-url origin 2>/dev/null || echo NONE)"
 
     if [[ $want == keep ]]; then
         assert_eq  "origin unchanged" "$before" "$after"
         assert_has "said so"          "left alone" "$out"
     else
-        assert_eq  "origin repointed" "$repo" "$after"
-        assert_has "warned"           "different repository" "$out"
-        assert_has "printed the old URL so it can be put back" "$before" "$out"
+        # A clone of someone else's repository is not ours to redirect: refuse,
+        # change nothing, and say what the ways forward are.
+        assert_eq    "origin unchanged" "$before" "$after"
+        assert_eq    "exit status"      "1" "$ec"
+        assert_has   "named the clone's own remote" "$before" "$out"
+        assert_has   "offered --dir"    "--dir <path>" "$out"
+        assert_has   "offered NEOBRIX_REPO" "NEOBRIX_REPO=$before" "$out"
+        assert_has   "offered set-url"  "remote set-url origin $repo" "$out"
+        assert_lacks "did not reach packages" "STUB-PACKAGES" "$out"
     fi
 }
 
@@ -224,9 +236,9 @@ test_origins() {
     origin_case "same URL, differing in case and .git" \
         'https://GitHub.com/asad-albadi/neobrix' \
         'https://github.com/asad-albadi/NeoBrix.git' keep
-    origin_case "a genuinely different repository is repointed, loudly" \
+    origin_case "a genuinely different repository is refused, not repointed" \
         'git@github.com:someone-else/their-fork.git' \
-        'https://github.com/asad-albadi/NeoBrix.git' repoint
+        'https://github.com/asad-albadi/NeoBrix.git' refuse
 
     case_ "origin: absent origin is added"
     local d; d="$(mktemp -d "$TMP/origin.XXXX")"
@@ -287,11 +299,72 @@ EOF
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
+#  local: who is allowed to answer pacman's confirmation
+# ═════════════════════════════════════════════════════════════════════════════
+# --noconfirm does not only answer "Proceed with installation?" — it accepts
+# package replacements too, so an unattended run could swap a -git build out
+# from under another account's desktop. With nobody to ask, packages.sh must
+# stop; with --yes it may proceed and must say what that allowed.
+#
+# The terminal is controlled rather than inherited: `setsid -w` detaches from
+# the controlling terminal, so /dev/tty genuinely cannot be opened, and
+# `script` allocates a real pty. Inheriting whatever the person running the
+# suite happened to have would make these two cases swap places.
+test_confirmation() {
+    local d="$TMP/confirm"; mkdir -p "$d/bin"
+    printf '#!/usr/bin/env bash\nshift 0\nexec "$@"\n' > "$d/bin/sudo"
+    # One package missing, and every `-S` recorded with its flags.
+    cat > "$d/bin/pacman" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  -Qq) [[ $2 == cliphist ]] && exit 1; exit 0 ;;
+  -Sy|-Si) exit 0 ;;
+  -S)  printf '%s\n' "$*" >> "$PACMAN_LOG"; exit 0 ;;
+esac
+exit 1
+EOF
+    chmod +x "$d/bin"/*
+    local out ec log
+    log="$d/pacman.log"
+
+    case_ "confirmation: no terminal and no --yes installs nothing"
+    : > "$log"
+    out="$(setsid -w env PATH="$d/bin:$PATH" PACMAN_LOG="$log" \
+        bash "$REPO/install/packages.sh" 2>&1 </dev/null)"; ec=$?
+    assert_eq  "exit status"                "1" "$ec"
+    assert_eq  "pacman -S was never run"    "" "$(cat "$log")"
+    assert_has "says why"                   "no terminal to confirm at" "$out"
+    assert_has "gives the piped form"       "bash -s -- --yes" "$out"
+    assert_has "gives the direct form"      "./install/packages.sh --yes" "$out"
+    assert_has "warns what --yes accepts"   "also accepts package replacements" "$out"
+
+    case_ "confirmation: --yes proceeds, and says what it accepted"
+    : > "$log"
+    out="$(setsid -w env PATH="$d/bin:$PATH" PACMAN_LOG="$log" \
+        bash "$REPO/install/packages.sh" --yes 2>&1 </dev/null)"; ec=$?
+    assert_eq  "exit status"                 "0" "$ec"
+    assert_has "installed the missing one"   "cliphist" "$(cat "$log")"
+    assert_has "with --noconfirm"            "--noconfirm" "$(cat "$log")"
+    assert_has "named replacements, not just the prompt" \
+               "accepts package replacements and conflict resolutions" "$out"
+
+    case_ "confirmation: at a terminal the prompt is left to be answered"
+    : > "$log"
+    # A real pty, so /dev/tty opens and the interactive branch is the one taken.
+    out="$(script -qec "env PATH=$d/bin:\$PATH PACMAN_LOG=$log bash $REPO/install/packages.sh" /dev/null </dev/null 2>&1)"; ec=$?
+    assert_eq    "exit status"                "0" "$ec"
+    assert_has   "pacman was run"             "cliphist" "$(cat "$log")"
+    assert_lacks "without --noconfirm"        "--noconfirm" "$(cat "$log")"
+    assert_lacks "and nothing was skipped on the user's behalf" \
+                 "installing without pacman's confirmation" "$out"
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  container: the real `… | bash`, with the packages genuinely absent
 # ═════════════════════════════════════════════════════════════════════════════
 IMAGE=neobrix-installer-test
 test_container() {
-    case_ "container: the real piped install, packages genuinely absent"
+    case_ "container: unattended, the real piped install must refuse"
     local D="sudo docker"
     if ! $D info >/dev/null 2>&1; then
         skip "docker is not usable here (tried: $D info)"; return
@@ -320,36 +393,36 @@ test_container() {
     fi
     $D exec "$cid" systemctl start user@1000.service >/dev/null 2>&1
 
+    # Unattended first, because it must install nothing — and because anything
+    # it did install would be missing from the run below.
     local out ec
     out="$($D exec -u tester -e XDG_RUNTIME_DIR=/run/user/1000 "$cid" container-run 2>&1)"; ec=$?
+    printf '%s\n' "$out" > "$TMP/container-unattended.log"
+    assert_eq    "unattended run fails"       "1" "$ec"
+    assert_has   "and says why"               "no terminal to confirm at" "$out"
+    assert_has   "and how to proceed"         "bash -s -- --yes" "$out"
+    assert_lacks "nothing was auto-accepted"  "--noconfirm" "$out"
+    local still_absent
+    still_absent="$($D exec "$cid" bash -c 'pacman -Qq cliphist >/dev/null 2>&1 && echo installed || echo absent')"
+    assert_eq    "it really installed nothing" "absent" "$still_absent"
+
+    case_ "container: the same run with --yes gets through to the end"
+    out="$($D exec -u tester -e XDG_RUNTIME_DIR=/run/user/1000 "$cid" container-run --yes 2>&1)"; ec=$?
     $D rm -f "$cid" >/dev/null
     printf '%s\n' "$out" > "$TMP/container.log"
 
-    assert_has    "packages were genuinely missing"  "missing:" "$out"
-    assert_has    "pacman really ran"                "Proceed with installation" "$out"
-    assert_before "packages ran before deploy"       "missing:" "checking dependencies" "$out"
-    assert_has    "deploy started"                   "linking configuration" "$out"
-    # Known blocker, unrelated to the three fixes this suite was written for:
-    # deploy.sh's require_lua_capable_hyprland does
-    #
-    #     version=$(hyprctl version 2>/dev/null | head -1 | grep -oE ... | head -1)
-    #     [[ -n "$version" ]] || { warn "could not determine..."; return 0; }
-    #
-    # With no compositor running, hyprctl exits 1 and grep matches nothing, so
-    # under `set -euo pipefail` the *assignment* fails and the script is gone
-    # before the guard on the next line can run. That guard is unreachable, and
-    # a first install — no Hyprland session yet, which is the whole point of the
-    # one-liner — dies there. Same family as the `grep -q`/SIGPIPE note 60 lines
-    # above it in that file.
-    if [[ "$out" != *"Neobrix is deployed"* && "$out" == *"linking configuration"* \
-          && "$out" != *"supports the Lua configuration"* ]]; then
-        known "deploy.sh dies at require_lua_capable_hyprland (see the comment here); everything up to it works"
-    else
-        assert_has "deploy installed its units" "installing systemd user units" "$out"
-        assert_has "reached the last step"      "Neobrix is deployed" "$out"
-        assert_eq  "exit status"                "0" "$ec"
-    fi
-    printf '  full log: %s\n' "$TMP/container.log"
+    assert_has    "packages were genuinely missing" "missing:" "$out"
+    assert_has    "pacman really ran"               "Proceed with installation" "$out"
+    assert_before "packages ran before deploy"      "missing:" "checking dependencies" "$out"
+    assert_has    "deploy started"                  "linking configuration" "$out"
+    # No compositor in a container, so this is also the case that proves
+    # deploy.sh's version guard is reachable again rather than taking the script
+    # with it — the whole run used to end here, silently.
+    assert_has    "the version guard runs"          "could not determine the Hyprland version" "$out"
+    assert_has    "deploy installed its units"      "installing systemd user units" "$out"
+    assert_has    "reached the last step"           "Neobrix is deployed" "$out"
+    assert_eq     "exit status"                     "0" "$ec"
+    printf '  logs: %s\n        %s\n' "$TMP/container-unattended.log" "$TMP/container.log"
     return 0
 }
 
@@ -359,11 +432,12 @@ if (( DO_LOCAL )); then
     test_piped_stdin
     test_origins
     test_packages_reporting
+    test_confirmation
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"
 
 printf '\n%s\n' "────────────────────────────────────"
-printf '%s%d passed%s, %s%d failed%s, %d known, %d skipped\n' \
-    "$c_ok" "$PASS" "$c_off" "$c_err" "$FAIL" "$c_off" "$KNOWN" "$SKIP"
+printf '%s%d passed%s, %s%d failed%s, %d skipped\n' \
+    "$c_ok" "$PASS" "$c_off" "$c_err" "$FAIL" "$c_off" "$SKIP"
 (( FAIL == 0 ))
