@@ -311,9 +311,24 @@ Item {
 
                                 // Row click: connect where that is all it takes,
                                 // otherwise open the passphrase field in place.
-                                function activate() {
+                                // A click anywhere on the row opens its actions,
+                                // and every action lives in there. Nothing in the
+                                // header is clickable, so there is no button for
+                                // the row's own MouseArea to sit on top of and
+                                // swallow — which is what happened to the actions
+                                // button that used to be in the header: the
+                                // overlay took the click and joined the network
+                                // instead, and on any row but the connected one
+                                // the actions could not be reached at all.
+                                function toggleActions() {
+                                    if (netRow.askPsk) { netRow.askPsk = false; return; }
+                                    netRow.showActions = !netRow.showActions;
+                                }
+
+                                // The primary action, from the button in the row
+                                // the click above opens.
+                                function join() {
                                     if (netRow.net.stateChanging) return;
-                                    if (netRow.net.connected) { netRow.showActions = !netRow.showActions; return; }
                                     netRow.failure = "";
                                     if (netRow.needsPsk) { netRow.showActions = false; netRow.askPsk = true; return; }
                                     netRow.net.connect();
@@ -498,19 +513,6 @@ Item {
                                             fontSize: 8
                                             accent: Theme.surface
                                         }
-
-                                        BrixIconButton {
-                                            icon: "󰇘"
-                                            tooltip: "Actions"
-                                            size: 20
-                                            accent: "transparent"
-                                            iconColor: netRow.net.connected
-                                                       ? Theme.textOn(Theme.secondary) : Theme.foregroundDim
-                                            onClicked: {
-                                                netRow.askPsk = false;
-                                                netRow.showActions = !netRow.showActions;
-                                            }
-                                        }
                                     }
 
                                     // ── passphrase, inline ──────────────────
@@ -601,7 +603,7 @@ Item {
                                             accent: Theme.surfaceAlt
                                             onClicked: {
                                                 netRow.showActions = false;
-                                                netRow.activate();
+                                                netRow.join();
                                             }
                                         }
                                         BrixButton {
@@ -636,7 +638,7 @@ Item {
                                     anchors.bottomMargin: netRow.askPsk || netRow.showActions ? 30 : 0
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: netRow.activate()
+                                    onClicked: netRow.toggleActions()
                                 }
                             }
                         }
@@ -931,6 +933,17 @@ Item {
                     fontSize: 8
                     accent: Theme.secondary
                 }
+            }
+
+            // Every action, reached by clicking the row. Nothing above is
+            // clickable: the header buttons used to sit here and would now be
+            // covered by the row's own MouseArea, which is the bug this layout
+            // removes rather than works around.
+            RowLayout {
+                visible: btRow.showActions
+                Layout.fillWidth: true
+                Layout.preferredHeight: 28
+                spacing: Theme.spaceXs
 
                 // Pairing is cancellable while it is in flight, which matters
                 // when the other end is waiting on a confirmation nothing here
@@ -962,27 +975,6 @@ Item {
                         else btRow.dev.connect();
                     }
                 }
-
-                BrixIconButton {
-                    // Not just for paired devices: BlueZ keeps an entry after a
-                    // device stops advertising, and paging a stale address fails
-                    // with "Page Timeout" until the entry is removed. Forget has
-                    // to be reachable for those.
-                    icon: "󰇘"
-                    tooltip: "Actions"
-                    size: 20
-                    accent: "transparent"
-                    iconColor: btRow.dev && btRow.dev.connected
-                               ? Theme.textOn(Theme.info) : Theme.foregroundDim
-                    onClicked: btRow.showActions = !btRow.showActions
-                }
-            }
-
-            RowLayout {
-                visible: btRow.showActions
-                Layout.fillWidth: true
-                Layout.preferredHeight: 28
-                spacing: Theme.spaceXs
 
                 Text {
                     text: "Trust"
@@ -1017,7 +1009,8 @@ Item {
             anchors.fill: parent
             anchors.bottomMargin: btRow.showActions ? 30 : 0
             hoverEnabled: true
-            acceptedButtons: Qt.NoButton
+            cursorShape: Qt.PointingHandCursor
+            onClicked: btRow.showActions = !btRow.showActions
         }
     }
 
