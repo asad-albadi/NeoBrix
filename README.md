@@ -156,7 +156,15 @@ install those two from the AUR yourself. See [Dependencies](#dependencies).
 
 ## Screenshots
 
-In [`docs/screenshots/`](docs/screenshots). Regenerate with
+![A tour of Neobrix: the launcher filtering as it is typed into, the audio and
+power controls opening under their own indicators, the calendar under the clock,
+the control centre, and the whole desktop changing from the dusk palette to dawn
+while it is open](docs/screenshots/tour.gif)
+
+*One pass through it: launcher, the per-indicator controls, calendar, control
+centre, and the palette changing from `dusk` to `dawn` live.*
+
+Stills in [`docs/screenshots/`](docs/screenshots). Regenerate with
 `neobrix-screenshot screen` (writes to `~/Pictures/Screenshots`).
 
 | | |
