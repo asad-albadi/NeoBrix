@@ -62,7 +62,14 @@ Item {
         shadowOffset: mouse.pressed ? 0 : Theme.shadowSm
         border.width: Theme.border
         anchors.verticalCenter: parent.verticalCenter
-        x: Math.round(root.value * track.width - width / 2)
+        // Centred on the value, but never past the ends of the slider.
+        // Unclamped it overhung both edges by half its own width: at 100% it
+        // covered the "100%" label sitting beside the slider, and at 0% it
+        // reached back into the mute button. The clamp only bites at the
+        // extremes, and there the handle's edge lines up with the end of the
+        // filled track anyway, so nothing moves that was correct before.
+        x: Math.round(Math.max(0, Math.min(root.width - handle.width,
+                                           root.value * track.width - handle.width / 2)))
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
     }
 
