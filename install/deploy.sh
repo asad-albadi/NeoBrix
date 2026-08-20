@@ -21,6 +21,18 @@
 
 set -euo pipefail
 
+# One recurring hazard in this file, because of the line above:
+#
+#     x=$(cmd | filter)        # cmd fails, or the filter matches nothing
+#     [[ -n $x ]] || { … }     # never runs: set -e ended the script one line up
+#
+# An assignment from a pipeline is itself a command, so a failing pipeline takes
+# the script with it *before* the guard written to handle it. Two guards in here
+# were unreachable for exactly that reason — the Hyprland version probe and the
+# restore-mode backup lookup — and the fc-list note further down is the same
+# hazard wearing `grep -q`. Run the command inside the `if`, then filter what it
+# returned; do not assign straight from a pipeline you expect to fail.
+
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -60,7 +72,10 @@ run()  { if (( DRY )); then printf '  %s[dry]%s %s\n' "$c_dim" "$c_off" "$*"; el
 
 # ── restore mode ─────────────────────────────────────────────────────────────
 if (( RESTORE )); then
-    latest=$(find "$BACKUP_ROOT" -maxdepth 1 -name 'deploy-*' -type d 2>/dev/null | sort | tail -n1)
+    latest=""
+    if found="$(find "$BACKUP_ROOT" -maxdepth 1 -name 'deploy-*' -type d 2>/dev/null)"; then
+        latest="$(printf '%s\n' "$found" | sort | tail -n1)"
+    fi
     [[ -n "$latest" ]] || { err "no deploy backup found under $BACKUP_ROOT"; exit 1; }
     info "restoring from $latest"
     while IFS= read -r -d '' item; do
@@ -163,8 +178,15 @@ retire_legacy_conf() {
 
 # Hyprland must be new enough to load a Lua config at all.
 require_lua_capable_hyprland() {
-    local version
-    version=$(hyprctl version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    local version="" raw first
+    # hyprctl exits 1 with no compositor running, and the version match then
+    # finds nothing either. Assigned straight from the pipeline, both of those
+    # ended the script here — so this ran on no first install, which is the one
+    # case the guard below exists for.
+    if raw="$(hyprctl version 2>/dev/null)"; then
+        first="${raw%%$'\n'*}"
+        if [[ $first =~ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then version="${BASH_REMATCH[1]}"; fi
+    fi
     [[ -n "$version" ]] || { warn "could not determine the Hyprland version; assuming Lua support"; return 0; }
 
     local major minor
