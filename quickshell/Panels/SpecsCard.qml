@@ -71,7 +71,23 @@ BrixCard {
             Spec {
                 visible: SysInfo.cpuModel !== ""
                 Layout.columnSpan: 2
-                label: SysInfo.cpuThreads > 0 ? "CPU · " + SysInfo.cpuThreads + " THREADS" : "CPU"
+                label: {
+                    const p = [];
+                    if (SysInfo.cpuCores > 0)
+                        p.push(SysInfo.cpuCores + (SysInfo.cpuCores === 1 ? " CORE" : " CORES"));
+                    // Only when they differ: "4 CORES · 4 THREADS" on a chip
+                    // without SMT says the same thing twice.
+                    if (SysInfo.cpuThreads > SysInfo.cpuCores)
+                        p.push(SysInfo.cpuThreads + " THREADS");
+                    // Base to boost, rather than one number that reads as the
+                    // current clock when it is nothing of the sort.
+                    if (SysInfo.cpuMaxGHz > 0)
+                        p.push(SysInfo.cpuBaseGHz > 0 && SysInfo.cpuBaseGHz < SysInfo.cpuMaxGHz
+                               ? SysInfo.cpuBaseGHz.toFixed(1) + "–"
+                                 + SysInfo.cpuMaxGHz.toFixed(1) + " GHZ"
+                               : SysInfo.cpuMaxGHz.toFixed(1) + " GHZ");
+                    return p.length > 0 ? "CPU · " + p.join(" · ") : "CPU";
+                }
                 value: SysInfo.cpuModel
                 glyph: "󰻠"
                 accent: Theme.error
@@ -79,7 +95,9 @@ BrixCard {
             Spec {
                 visible: SysInfo.gpuModel !== ""
                 Layout.columnSpan: 2
-                label: "GPU"
+                label: SysInfo.gpuMemoryMiB > 0
+                       ? "GPU · " + Math.round(SysInfo.gpuMemoryMiB / 1024) + " GB"
+                       : "GPU"
                 value: SysInfo.gpuModel
                 glyph: "󰢮"
                 accent: Theme.info

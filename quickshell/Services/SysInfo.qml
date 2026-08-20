@@ -58,8 +58,12 @@ Singleton {
 
     // ── hardware ────────────────────────────────────────────────────────────
     property string cpuModel: ""
+    property int cpuCores: 0
     property int cpuThreads: 0
+    property real cpuBaseGHz: 0
+    property real cpuMaxGHz: 0
     property string gpuModel: ""
+    property int gpuMemoryMiB: 0
     property string machineModel: ""
 
     // ── network throughput, bytes/s ─────────────────────────────────────────
@@ -207,15 +211,28 @@ Singleton {
         id: cpuinfoFile
         path: "/proc/cpuinfo"
         onLoaded: {
-            let model = "", threads = 0;
+            let model = "", threads = 0, coresField = 0, phys = "0";
+            // Unique physical-id:core-id pairs, so a two-socket machine counts
+            // both packages rather than reporting one of them. The `cpu cores`
+            // field is the fallback for kernels and architectures that do not
+            // publish the topology.
+            const pairs = {};
             for (const line of text().split("\n")) {
                 if (!model) {
                     const m = line.match(/^model name\s*:\s*(.+)$/);
                     if (m) model = m[1];
                 }
                 if (/^processor\s*:/.test(line)) threads++;
+                const pm = line.match(/^physical id\s*:\s*(\d+)/);
+                if (pm) phys = pm[1];
+                const cm = line.match(/^core id\s*:\s*(\d+)/);
+                if (cm) pairs[phys + ":" + cm[1]] = true;
+                const cf = line.match(/^cpu cores\s*:\s*(\d+)/);
+                if (cf && !coresField) coresField = parseInt(cf[1]);
             }
+            const topology = Object.keys(pairs).length;
             root.cpuThreads = threads;
+            root.cpuCores = topology > 0 ? topology : (coresField > 0 ? coresField : threads);
             root.cpuModel = root.tidyCpu(model);
         }
     }
@@ -246,13 +263,17 @@ Singleton {
     // ── one-shot static probes ──────────────────────────────────────────────
     Process {
         command: ["sh", "-c",
-            "printf '%s\\n%s\\n%s\\n%s\\n%s\\n' " +
+            "printf '%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n%s\\n' " +
             "\"$(uname -n)\" \"$(uname -r)\" " +
             "\"$(. /etc/os-release 2>/dev/null; printf '%s' \"${PRETTY_NAME:-$NAME}\")\" " +
             "\"$(basename \"${SHELL:-sh}\")\" " +
             // id -un rather than $USER: the shell running this is not a login
             // shell and does not have to have it set.
-            "\"$(getent passwd \"$(id -un)\" | cut -d: -f5 | cut -d, -f1)\""]
+            "\"$(getent passwd \"$(id -un)\" | cut -d: -f5 | cut -d, -f1)\" " +
+            // kHz. base_frequency is Intel's, absent elsewhere; the max is what
+            // every cpufreq driver publishes.
+            "\"$(cat /sys/devices/system/cpu/cpu0/cpufreq/base_frequency 2>/dev/null)\" " +
+            "\"$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null)\""]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -262,6 +283,8 @@ Singleton {
                 root.distro = (l[2] || "").trim();
                 root.shellName = (l[3] || "").trim();
                 root.fullName = (l[4] || "").trim();
+                root.cpuBaseGHz = (parseInt((l[5] || "").trim()) || 0) / 1000000;
+                root.cpuMaxGHz = (parseInt((l[6] || "").trim()) || 0) / 1000000;
             }
         }
     }
@@ -280,9 +303,14 @@ Singleton {
     // project; the sysfs driver is the fallback, so a machine without pciutils
     // reads "nvidia" rather than nothing. simpledrm and vkms are skipped —
     // neither is hardware anyone means by "GPU".
+    //
+    // One caveat worth knowing: nvidia-smi is the only way to ask an NVIDIA card
+    // how much memory it has, and calling it wakes a card that runtime power
+    // management has suspended. This runs once, at shell start, and only when
+    // the chosen card is on the nvidia driver.
     Process {
         command: ["sh", "-c",
-            "pa=; pv=; fa=; fv=;" +
+            "pa=; pv=; pd=; fa=; fv=; fd=;" +
             "for d in /sys/class/drm/card*; do " +
               "case ${d##*/} in *-*) continue ;; esac;" +
               "[ -e $d/device ] || continue;" +
@@ -290,17 +318,29 @@ Singleton {
               "v=$(basename $(readlink -f $d/device/driver 2>/dev/null) 2>/dev/null);" +
               "case $v in simpledrm|vkms) continue ;; esac;" +
               "[ x$v = x ] && continue;" +
-              "[ x$fa = x ] && { fa=$a; fv=$v; };" +
+              "[ x$fa = x ] && { fa=$a; fv=$v; fd=$d; };" +
               "[ x$pa = x ] && [ $(cat $d/device/boot_vga 2>/dev/null || echo 0) = 0 ] " +
-                "&& { pa=$a; pv=$v; };" +
+                "&& { pa=$a; pv=$v; pd=$d; };" +
             "done;" +
-            "[ x$pa = x ] && { pa=$fa; pv=$fv; };" +
+            "[ x$pa = x ] && { pa=$fa; pv=$fv; pd=$fd; };" +
             // The PCI address contains colons, so it cannot be packed into one
             // variable with a colon separator — that truncated 01:00.0 to 01
             // and looked up the wrong device.
             "n=$(lspci -mms $pa 2>/dev/null | tr '\\042' '\\n' | sed -n 6p);" +
             "[ x\"$n\" = x ] && n=$pv;" +
-            "printf '%s\\n%s\\n' \"$n\" \"$(cat /sys/class/dmi/id/product_name 2>/dev/null)\""]
+            // amdgpu states its VRAM in sysfs, which costs nothing to read.
+            // NVIDIA does not, and nvidia-smi is the only way to ask — see the
+            // note above about what that does on a laptop. Intel integrated
+            // graphics have no dedicated memory to report at all.
+            "m=$(cat $pd/device/mem_info_vram_total 2>/dev/null);" +
+            "if [ x$m != x ]; then m=$((m / 1048576)); else m=0;" +
+              "[ x$pv = xnvidia ] && command -v nvidia-smi >/dev/null 2>&1 && " +
+                "m=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits " +
+                    "-i 0000:$pa 2>/dev/null | head -1 | tr -dc 0-9);" +
+              "[ x$m = x ] && m=0;" +
+            "fi;" +
+            "printf '%s\\n%s\\n%s\\n' \"$n\" \"$m\" " +
+                "\"$(cat /sys/class/dmi/id/product_name 2>/dev/null)\""]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -311,10 +351,11 @@ Singleton {
                 const br = gpu.match(/\[([^\]]+)\]/);
                 if (br) gpu = br[1].trim();
                 root.gpuModel = gpu;
+                root.gpuMemoryMiB = parseInt((l[1] || "").trim()) || 0;
 
                 // DMI is free text and often repeats the board code
                 // ("FX516PC_FX516PC"), or is a placeholder nobody filled in.
-                let model = (l[1] || "").trim().split("_")[0].trim();
+                let model = (l[2] || "").trim().split("_")[0].trim();
                 if (/^(to be filled|system product|default string|none|n\/a)/i.test(model))
                     model = "";
                 root.machineModel = model;
