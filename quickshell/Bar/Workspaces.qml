@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Widgets
 import qs.Theme
 import qs.Components
 import qs.Services
@@ -42,6 +43,21 @@ Item {
         return out;
     }
 
+    // Most windows are named by their Hyprland class, which is not an icon name:
+    // "kitty" and "cursor" resolve straight through the icon theme, "zen" does
+    // not — its desktop entry is what knows the icon. heuristicLookup is the
+    // fuzzy class-to-entry match built for exactly this, with the class itself
+    // as the fallback and a generic icon behind that.
+    function iconFor(toplevel) {
+        if (!toplevel) return "";
+        const ipc = toplevel.lastIpcObject;
+        const cls = ipc && ipc.class ? ipc.class : "";
+        if (cls === "") return "";
+        const entry = DesktopEntries.heuristicLookup(cls);
+        return Quickshell.iconPath(entry && entry.icon ? entry.icon : cls,
+                                   "application-x-executable");
+    }
+
     readonly property var specialWorkspace: {
         for (const ws of root.hyprWorkspaces)
             if (ws.id < 0 && ws.toplevels && ws.toplevels.values.length > 0) return ws;
@@ -65,11 +81,22 @@ Item {
                 readonly property bool focused: exists && ws.focused
                 readonly property bool active: exists && ws.active
                 readonly property bool urgent: exists && ws.urgent
-                readonly property int windows: exists && ws.toplevels ? ws.toplevels.values.length : 0
+                readonly property var wins: exists && ws.toplevels ? ws.toplevels.values : []
+                readonly property int windows: wins.length
                 readonly property bool occupied: windows > 0
 
-                // The focused workspace is a wide pill; the rest are square chips.
-                implicitWidth: focused ? 38 : 24
+                // Up to three marks. Beyond that the last one becomes a count,
+                // so a workspace with nine windows is still three marks wide and
+                // the group cannot run off the island.
+                readonly property int maxMarks: 3
+                readonly property int marks: Math.min(windows, maxMarks)
+                readonly property bool overflowing: windows > maxMarks
+
+                // The focused workspace is a wide pill; the rest are square
+                // chips. Either grows by its marks — the width is already
+                // animated, and the focused chip already changed size, so
+                // growing to fit what is open is the behaviour that was there.
+                implicitWidth: (focused ? 38 : 24) + marks * 15
                 implicitHeight: 24
                 Layout.preferredWidth: implicitWidth
                 Layout.preferredHeight: implicitHeight
@@ -91,15 +118,55 @@ Item {
 
                     Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
-                    Text {
+                    RowLayout {
                         anchors.centerIn: parent
-                        text: slot.modelData.id
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSm
-                        font.weight: slot.focused ? Theme.weightHeavy : Theme.weightBold
-                        color: slot.focused || slot.urgent ? Theme.onAccent
-                             : slot.occupied ? Theme.foreground
-                             : Theme.foregroundDim
+                        spacing: 3
+
+                        Text {
+                            text: slot.modelData.id
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSm
+                            font.weight: slot.focused ? Theme.weightHeavy : Theme.weightBold
+                            color: slot.focused || slot.urgent ? Theme.onAccent
+                                 : slot.occupied ? Theme.foreground
+                                 : Theme.foregroundDim
+                        }
+
+                        Repeater {
+                            model: slot.marks
+
+                            delegate: Item {
+                                id: mark
+                                required property int index
+
+                                // The last mark stands in for everything past
+                                // it, so the count includes itself: two icons
+                                // and "+7" for nine windows.
+                                readonly property bool isCount:
+                                    slot.overflowing && index === slot.marks - 1
+
+                                Layout.preferredWidth: 12
+                                Layout.preferredHeight: 12
+
+                                IconImage {
+                                    visible: !mark.isCount
+                                    anchors.fill: parent
+                                    source: mark.isCount
+                                            ? "" : root.iconFor(slot.wins[mark.index])
+                                }
+
+                                Text {
+                                    visible: mark.isCount
+                                    anchors.centerIn: parent
+                                    text: "+" + (slot.windows - slot.marks + 1)
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 8
+                                    font.weight: Theme.weightBold
+                                    color: slot.focused || slot.urgent
+                                           ? Theme.onAccent : Theme.foregroundDim
+                                }
+                            }
+                        }
                     }
                 }
 
