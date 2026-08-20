@@ -320,6 +320,7 @@ link terminal/alacritty/alacritty.toml "$CFG/alacritty/alacritty.toml"
 link terminal/kitty/kitty.conf         "$CFG/kitty/kitty.conf"
 link terminal/fastfetch/config.jsonc   "$CFG/fastfetch/config.jsonc"
 link terminal/fish/config.fish         "$CFG/fish/config.fish"
+link terminal/fish/functions/fish_prompt.fish "$CFG/fish/functions/fish_prompt.fish"
 # GTK, Qt and KDE colours are *generated* by neobrix-theme rather than linked:
 # they must follow the shell's light/dark mode, and KDE applications write to
 # kdeglobals themselves — a symlink there gets rewritten and the theme drifts
