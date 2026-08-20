@@ -15,6 +15,9 @@
 #    ./install/packages.sh            install what's missing
 #    ./install/packages.sh --list     print the package list and exit
 #    ./install/packages.sh --check    report missing packages, install nothing
+#    ./install/packages.sh --yes      install without pacman's confirmation.
+#                                     Read what that means at the bottom of
+#                                     this file before reaching for it.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -107,7 +110,13 @@ err()  { printf '%s==>%s %s\n' "$c_err" "$c_off" "$*" >&2; }
 quote() { sed 's/^/      /' >&2; }
 
 CHECK_ONLY=0
-[[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
+ASSUME_YES=${NB_ASSUME_YES:-0}    # bootstrap.sh exports this from its own --yes
+for a in "$@"; do
+    case "$a" in
+        --check)  CHECK_ONLY=1 ;;
+        -y|--yes) ASSUME_YES=1 ;;
+    esac
+done
 
 # ── make sure pacman can answer before believing its answers ─────────────────
 # The sync databases have to be current, or every -Si below fails and the whole
@@ -202,27 +211,40 @@ info "missing: ${missing[*]}"
 (( CHECK_ONLY )) && exit 1
 
 # ── install ──────────────────────────────────────────────────────────────────
-# The confirmation stays where anyone can answer it: this is the one moment the
-# user should see what is about to be installed and be able to refuse, since
-# repository packages can displace -git builds something else on the machine
-# depends on. Pacman reads that answer from *stdin*, which is why bootstrap.sh
-# hands its children a terminal and never its own stdin — piped, its stdin is the
-# rest of the install script, and pacman would eat it.
+# The confirmation is answered by a person or it is not answered at all.
 #
-# --noconfirm only where there is nobody to ask, because pacman treats EOF on
-# stdin as a refusal rather than as the default its own prompt advertises: it
-# prints "Proceed with installation? [Y/n]", exits 1, and installs nothing. So
-# with no terminal — CI, `docker run` without -t, a cron job — the run cannot
-# install anything at all unless it says so. That is the rule ask.sh already
-# uses for its own questions: with nobody to ask, the default applies and the
-# log says who decided.
+# It has to be read from a terminal, not from stdin: piped — `curl … | bash` —
+# this script's caller has the rest of the installer on its stdin, and pacman
+# reads in blocks, so it swallowed everything below the packages step and the
+# run ended there having deployed nothing. bootstrap.sh therefore hands its
+# children the terminal and never its own stdin, and this script checks for a
+# terminal itself rather than trusting whatever descriptor it was handed —
+# /dev/null is not a "no terminal" that anything can recognise once it has been
+# given it.
+#
+# With no terminal, this stops. It does not fall back to --noconfirm, because
+# --noconfirm does not only answer "Proceed with installation?" — it also
+# accepts package replacements and conflict resolutions. On a machine where
+# another account's desktop depends on -git builds, an unattended run could
+# replace hyprland-git with the repository hyprland and break a session
+# belonging to someone who is not there to be asked. Failing is the smaller
+# harm, and pacman agrees: given EOF on stdin it treats it as a refusal, prints
+# the prompt, exits 1 and installs nothing.
 confirm=()
-if (( ${NB_ASSUME_YES:-0} )); then
-    warn "--yes given: installing without pacman's confirmation"
+if (( ASSUME_YES )); then
+    warn "--yes: installing without pacman's confirmation."
+    warn "That accepts package replacements and conflict resolutions too, not"
+    warn "just the proceed prompt — repository packages may replace -git builds."
     confirm=(--noconfirm)
 elif ! { exec 3<>/dev/tty; } 2>/dev/null; then
-    warn "no terminal to ask at: installing without pacman's confirmation"
-    confirm=(--noconfirm)
+    err "no terminal to confirm at, so nothing was installed."
+    err "pacman's confirmation needs a person; re-run with --yes to skip it:"
+    printf '      %s\n' \
+        "curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bootstrap.sh | bash -s -- --yes" \
+        "./install/packages.sh --yes" >&2
+    err "--yes also accepts package replacements, so on a machine where another"
+    err "account's setup depends on -git builds, read the list above first."
+    exit 1
 else
     exec 3>&-
 fi

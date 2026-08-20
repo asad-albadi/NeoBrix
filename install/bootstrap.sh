@@ -223,9 +223,10 @@ NB_CHILD_STDIN=/dev/null
 [[ -n ${NB_TTY:-} ]] && NB_CHILD_STDIN="$NB_TTY"
 child() { "$@" < "$NB_CHILD_STDIN"; }
 
-# And tell them whether anyone is there to answer, because /dev/null is not a
-# "no terminal" a child can detect once it has been handed it: pacman would read
-# EOF, take it for a refusal, and install nothing.
+# And whether anyone is there to answer, which is a different question from
+# which descriptor stdin happens to be: /dev/null is not a "no terminal" that a
+# child can recognise once it has been handed it. packages.sh needs to know,
+# because with nobody to confirm to it stops rather than install unattended.
 export NB_ASSUME_YES="$ASSUME_YES"
 
 # ── uninstall short-circuit ──────────────────────────────────────────────────
