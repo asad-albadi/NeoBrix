@@ -98,14 +98,58 @@ fi
 
 command -v pacman >/dev/null || { echo "this script targets Arch/CachyOS (pacman)" >&2; exit 1; }
 
+c_ok=$'\033[32m'; c_warn=$'\033[33m'; c_err=$'\033[31m'; c_off=$'\033[0m'
+info() { printf '%s==>%s %s\n' "$c_ok" "$c_off" "$*"; }
+warn() { printf '%s==>%s %s\n' "$c_warn" "$c_off" "$*"; }
+err()  { printf '%s==>%s %s\n' "$c_err" "$c_off" "$*" >&2; }
+# Pacman's own words, indented and unedited. Every wrong diagnosis this script
+# has produced came from summarising them instead of printing them.
+quote() { sed 's/^/      /' >&2; }
+
+CHECK_ONLY=0
+[[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
+
+# ── make sure pacman can answer before believing its answers ─────────────────
+# The sync databases have to be current, or every -Si below fails and the whole
+# package list gets classified as "not in your repositories" — 46 names blamed
+# on the mirrors when the real fault was one stale or unreadable database.
+refresh_failed=0
+if (( CHECK_ONLY )); then
+    warn "--check: leaving the package databases alone (refreshing them needs sudo)"
+else
+    info "refreshing package databases"
+    if ! sy_err="$(sudo pacman -Sy 2>&1 >/dev/null)"; then
+        refresh_failed=1
+        warn "could not refresh the package databases; classifying against what is on disk"
+        [[ -n $sy_err ]] && printf '%s\n' "$sy_err" | quote
+    fi
+fi
+
+# One query with a known-good answer. `pacman` is in core on every Arch and
+# CachyOS install, so if this fails the fault is pacman's, not the list's. The
+# old code could not tell those two apart: a broken pacman looked exactly like
+# 46 packages that do not exist, and it reported the second.
+if ! probe_err="$(pacman -Si pacman 2>&1 >/dev/null)"; then
+    err "pacman cannot query its package databases, so nothing was classified."
+    err "pacman said:"
+    printf '%s\n' "$probe_err" | quote
+    (( refresh_failed )) && err "the refresh above failed too — check your mirrors."
+    exit 1
+fi
+
 missing=()
 unavailable=()
+si_err=""
 for p in "${ALL[@]}"; do
+    # -Qq's stderr stays hidden: "package not found" is the ordinary answer here.
+    # -Si's does not — that is the one that carried the real error and was thrown
+    # away, and an evening went into rediscovering it in English.
     if pacman -Qq "$p" >/dev/null 2>&1; then continue; fi
-    if pacman -Si "$p" >/dev/null 2>&1; then
+    if p_err="$(pacman -Si "$p" 2>&1 >/dev/null)"; then
         missing+=("$p")
     else
         unavailable+=("$p")
+        if [[ -z $si_err && -n $p_err ]]; then si_err="$p_err"; fi
     fi
 done
 
@@ -120,25 +164,42 @@ if (( ${#unavailable[@]} )); then
         fi
     done
     if (( ${#optional_missing[@]} )); then
-        printf '\033[33m==>\033[0m skipping, not in your repositories: %s\n' "${optional_missing[*]}"
+        warn "skipping, not in your repositories: ${optional_missing[*]}"
         printf '    These are applications, not part of the desktop. On plain Arch they are\n'
         printf '    AUR packages (paru -S zen-browser-bin cursor-bin), or install Zen from\n'
         printf '    upstream. Neobrix runs without them; the browser keybind and the IDE\n'
         printf '    keybind simply point at whatever you do have.\n'
     fi
     if (( ${#required_missing[@]} )); then
-        printf '\033[31m==>\033[0m required packages not found in any repository: %s\n' "${required_missing[*]}"
-        printf '    This is unexpected on Arch or CachyOS — check your mirrors.\n'
+        # Fatal. It used to fall through to "all repository packages already
+        # installed" and exit 0, because a package that is unavailable is never
+        # in `missing` — so the run continued and install/deploy.sh answered with
+        # "run packages.sh first", pointing at the script that had just claimed
+        # success.
+        err "required packages not found in any repository: ${required_missing[*]}"
+        if (( refresh_failed )); then
+            err "the package databases could not be refreshed, which is the likely cause — check your mirrors."
+        elif (( CHECK_ONLY )); then
+            err "the databases were not refreshed in --check mode; re-run without --check to refresh first."
+        else
+            err "the databases refreshed cleanly, so this is not a mirror problem."
+        fi
+        if [[ -n $si_err ]]; then
+            err "pacman said, for the first of them:"
+            printf '%s\n' "$si_err" | quote
+        fi
+        err "stopping here: the desktop cannot be deployed without these."
+        exit 1
     fi
 fi
 
 if (( ${#missing[@]} == 0 )); then
-    printf '\033[32m==>\033[0m all repository packages already installed\n'
+    info "all repository packages already installed"
     exit 0
 fi
 
-printf '\033[32m==>\033[0m missing: %s\n' "${missing[*]}"
-[[ "${1:-}" == "--check" ]] && exit 1
+info "missing: ${missing[*]}"
+(( CHECK_ONLY )) && exit 1
 
 # No --noconfirm: this is the one moment the user should see what is about to be
 # installed and be able to refuse, since repository packages can displace -git
@@ -150,6 +211,6 @@ sudo pacman -S --needed "${missing[@]}"
 
 # mpv-mpris is optional but makes mpv show up in the shell's media controls.
 if pacman -Qq mpv >/dev/null 2>&1 && ! pacman -Qq mpv-mpris >/dev/null 2>&1; then
-    printf '\033[32m==>\033[0m mpv is installed; adding mpv-mpris for MPRIS support\n'
+    info "mpv is installed; adding mpv-mpris for MPRIS support"
     sudo pacman -S --needed --noconfirm mpv-mpris || true
 fi
