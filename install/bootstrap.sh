@@ -160,12 +160,18 @@ if [[ -d $DIR/.git ]]; then
         git -C "$DIR" remote add origin "$REPO_URL"
         step "added origin  $REPO_URL"
     elif [[ "$(repo_id "$origin_url")" != "$(repo_id "$REPO_URL")" ]]; then
-        warn "origin points at a different repository, and is being repointed:"
-        step "was  $origin_url"
-        step "now  $REPO_URL"
-        step "to keep the old one:  git -C $DIR remote set-url origin $origin_url"
-        step "or set NEOBRIX_REPO to it and re-run"
-        git -C "$DIR" remote set-url origin "$REPO_URL"
+        # Not ours to redirect. Repointing it here would take push access from
+        # whoever works out of that clone — someone on their own fork — which is
+        # the same silent clobber one level out from the one this replaced.
+        err "$DIR is a clone of a different repository, so nothing was touched."
+        step "its origin   $origin_url"
+        step "wanted       $REPO_URL"
+        err "Pick one, then re-run:"
+        step "install somewhere else          --dir <path>   (or NEOBRIX_DIR)"
+        step "install from that remote        NEOBRIX_REPO=$origin_url"
+        step "or repoint it yourself, knowing what it costs:"
+        step "    git -C $DIR remote set-url origin $REPO_URL"
+        exit 1
     else
         step "origin already this repository, left alone:  $origin_url"
     fi
