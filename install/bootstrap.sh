@@ -135,9 +135,40 @@ fi
 
 # ── fetch ────────────────────────────────────────────────────────────────────
 STEP="fetching the repository into $DIR"
+# Two URLs for the same repository, so that ssh and https forms compare equal:
+#     git@github.com:asad-albadi/NeoBrix.git
+#     https://github.com/asad-albadi/NeoBrix.git
+# Both reduce to github.com/asad-albadi/neobrix.
+repo_id() {
+    local u="$1"
+    u="${u%.git}"; u="${u%/}"
+    u="${u#ssh://}"; u="${u#git://}"; u="${u#https://}"; u="${u#http://}"
+    u="${u#*@}"                                       # user@
+    [[ $u =~ ^([^/:]+):([0-9]+)(/.*)$ ]] && u="${BASH_REMATCH[1]}${BASH_REMATCH[3]}"   # :port
+    u="${u/:/\/}"                                     # scp form host:path
+    printf '%s' "${u,,}"
+}
+
 if [[ -d $DIR/.git ]]; then
     info "updating $DIR"
-    git -C "$DIR" remote set-url origin "$REPO_URL"
+    # Only touch origin when it is absent or points somewhere else. This used to
+    # be an unconditional `set-url`, which meant every update run replaced an ssh
+    # remote with the https default and took push access away from whoever was
+    # using it — silently, and again on the next run after they put it back.
+    origin_url="$(git -C "$DIR" remote get-url origin 2>/dev/null || true)"
+    if [[ -z $origin_url ]]; then
+        git -C "$DIR" remote add origin "$REPO_URL"
+        step "added origin  $REPO_URL"
+    elif [[ "$(repo_id "$origin_url")" != "$(repo_id "$REPO_URL")" ]]; then
+        warn "origin points at a different repository, and is being repointed:"
+        step "was  $origin_url"
+        step "now  $REPO_URL"
+        step "to keep the old one:  git -C $DIR remote set-url origin $origin_url"
+        step "or set NEOBRIX_REPO to it and re-run"
+        git -C "$DIR" remote set-url origin "$REPO_URL"
+    else
+        step "origin already this repository, left alone:  $origin_url"
+    fi
     # --ff-only: never invent a merge commit in someone's clone, and never
     # rewrite it. If it cannot fast-forward, say which of the two reasons it is
     # and how to resolve it — git's own output is a wall of hints.
