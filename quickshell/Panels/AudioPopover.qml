@@ -1,7 +1,7 @@
 // Output control, hanging under the speaker glyph: level, mute, and which sink
 // the machine plays through.
 //
-// The Control Center's AudioCard covers the same ground alongside everything
+// The Control Center's LevelsCard covers the same ground alongside everything
 // else; this is the one-click path to it. Both read the same Audio service, so
 // there is no second copy of the logic to drift.
 

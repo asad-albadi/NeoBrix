@@ -1,8 +1,12 @@
-// Audio: output level, microphone level and output device selection.
+// Levels: output, microphone, screen brightness, and output device selection.
+//
+// Named for what it holds rather than for audio alone — the backlight row has
+// always been in here, and a card labelled AUDIO with a brightness slider in it
+// is a card that lies about one of its three rows.
 //
 // Reads and writes PipeWire node volumes directly. Rows for devices that do not
-// exist are simply absent, and if PipeWire exposes no sink at all the card says
-// so rather than showing a slider that does nothing.
+// exist are simply absent, and if PipeWire exposes neither a sink nor a
+// backlight the card says so rather than showing sliders that do nothing.
 
 import QtQuick
 import QtQuick.Layouts
@@ -25,7 +29,7 @@ BrixCard {
         anchors.margins: Theme.spaceSm
         spacing: Theme.spaceXs
 
-        SectionHeader { text: "AUDIO"; icon: "󰕾"; Layout.fillWidth: true }
+        SectionHeader { text: "LEVELS"; icon: "󰘮"; Layout.fillWidth: true }
 
         Level {
             visible: Audio.hasSink

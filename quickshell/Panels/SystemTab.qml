@@ -253,7 +253,7 @@ Item {
 
             // Audio card — output level, microphone level and output device
             // selection, all straight from PipeWire.
-            AudioCard {
+            LevelsCard {
                 Layout.fillWidth: true
                 Layout.fillHeight: false
             }
