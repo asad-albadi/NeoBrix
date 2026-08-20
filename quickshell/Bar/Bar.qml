@@ -159,13 +159,17 @@ PanelWindow {
 
         // Separate island, accent-filled as in the reference.
         BrixCard {
+            id: controlIsland
             Layout.preferredHeight: Theme.barIslandHeight
             Layout.preferredWidth: Theme.barIslandHeight
             radius: Theme.radiusMd
             color: Panels.isOpen("control") ? Theme.primary : Theme.pink
             shadowOffset: Theme.shadowMd
 
-            ControlButton { anchors.centerIn: parent }
+            ControlButton {
+                anchors.centerIn: parent
+                accent: controlIsland.color
+            }
         }
     }
 }
