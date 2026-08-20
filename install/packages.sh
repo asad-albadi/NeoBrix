@@ -201,13 +201,33 @@ fi
 info "missing: ${missing[*]}"
 (( CHECK_ONLY )) && exit 1
 
-# No --noconfirm: this is the one moment the user should see what is about to be
-# installed and be able to refuse, since repository packages can displace -git
-# builds something else on the machine depends on. Pacman reads that answer from
-# *stdin*, which is why bootstrap.sh hands its children a terminal (or /dev/null)
-# and never its own stdin — piped, its stdin is the rest of the install script,
-# and pacman would eat it. If you add a caller, give this script a real stdin.
-sudo pacman -S --needed "${missing[@]}"
+# ── install ──────────────────────────────────────────────────────────────────
+# The confirmation stays where anyone can answer it: this is the one moment the
+# user should see what is about to be installed and be able to refuse, since
+# repository packages can displace -git builds something else on the machine
+# depends on. Pacman reads that answer from *stdin*, which is why bootstrap.sh
+# hands its children a terminal and never its own stdin — piped, its stdin is the
+# rest of the install script, and pacman would eat it.
+#
+# --noconfirm only where there is nobody to ask, because pacman treats EOF on
+# stdin as a refusal rather than as the default its own prompt advertises: it
+# prints "Proceed with installation? [Y/n]", exits 1, and installs nothing. So
+# with no terminal — CI, `docker run` without -t, a cron job — the run cannot
+# install anything at all unless it says so. That is the rule ask.sh already
+# uses for its own questions: with nobody to ask, the default applies and the
+# log says who decided.
+confirm=()
+if (( ${NB_ASSUME_YES:-0} )); then
+    warn "--yes given: installing without pacman's confirmation"
+    confirm=(--noconfirm)
+elif ! { exec 3<>/dev/tty; } 2>/dev/null; then
+    warn "no terminal to ask at: installing without pacman's confirmation"
+    confirm=(--noconfirm)
+else
+    exec 3>&-
+fi
+
+sudo pacman -S --needed "${confirm[@]}" "${missing[@]}"
 
 # mpv-mpris is optional but makes mpv show up in the shell's media controls.
 if pacman -Qq mpv >/dev/null 2>&1 && ! pacman -Qq mpv-mpris >/dev/null 2>&1; then

@@ -192,6 +192,11 @@ NB_CHILD_STDIN=/dev/null
 [[ -n ${NB_TTY:-} ]] && NB_CHILD_STDIN="$NB_TTY"
 child() { "$@" < "$NB_CHILD_STDIN"; }
 
+# And tell them whether anyone is there to answer, because /dev/null is not a
+# "no terminal" a child can detect once it has been handed it: pacman would read
+# EOF, take it for a refusal, and install nothing.
+export NB_ASSUME_YES="$ASSUME_YES"
+
 # ── uninstall short-circuit ──────────────────────────────────────────────────
 if (( DO_UNINSTALL )); then
     STEP="uninstalling"
