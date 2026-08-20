@@ -76,7 +76,14 @@ Item {
                     elide: Text.ElideRight
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontXs
-                    color: root.selected ? Qt.rgba(0, 0, 0, 0.55) : Theme.foregroundDim
+                    // The same ink the name above uses, at reduced opacity —
+                    // rather than a literal black, which happened to suit the
+                    // current accent and would have stopped suiting it the
+                    // moment the palette moved.
+                    color: root.selected
+                           ? Qt.rgba(Theme.onAccent.r, Theme.onAccent.g,
+                                     Theme.onAccent.b, 0.55)
+                           : Theme.foregroundDim
                 }
             }
 
