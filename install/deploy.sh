@@ -92,7 +92,7 @@ fi
 # ── dependency check ─────────────────────────────────────────────────────────
 REQUIRED=(qs hyprctl hyprlock hypridle grim slurp wl-copy cliphist
           notify-send wpctl magick)
-OPTIONAL=(satty hyprpicker brightnessctl zen-browser dolphin alacritty)
+OPTIONAL=(satty hyprpicker brightnessctl zen-browser dolphin kitty)
 
 info "checking dependencies"
 missing=()

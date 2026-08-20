@@ -79,7 +79,7 @@ GREETER=(
 
 # ── applications ────────────────────────────────────────────────────────────
 APPS=(
-    alacritty
+    kitty          # the terminal SUPER+RETURN opens
     dolphin
 )
 

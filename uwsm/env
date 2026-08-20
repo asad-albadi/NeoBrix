@@ -39,7 +39,7 @@ export HYPRCURSOR_SIZE=24
 # CachyOS leaves BROWSER=firefox in the login environment on an image that
 # deliberately excludes Firefox; point it at the browser that is installed.
 export BROWSER=zen-browser
-export TERMINAL=alacritty
+export TERMINAL=kitty
 export EDITOR=micro
 export VISUAL=micro
 

@@ -494,7 +494,7 @@ Utilities: `wl-clipboard` `cliphist` `grim` `slurp` `satty` `brightnessctl`
 `libnotify` `imagemagick` `librsvg` `python`.
 Look: `ttf-jetbrains-mono-nerd` `papirus-icon-theme` `adw-gtk-theme` `qt5ct`
 `qt6ct` `adwaita-cursors`.
-Apps: `alacritty` `dolphin`.
+Apps: `kitty` `dolphin`.
 Optional, not in Arch's official repositories: `zen-browser-bin` `cursor-bin`
 (both in the `cachyos` repo; AUR on plain Arch). Skipped automatically when
 unavailable — the browser and IDE keybinds simply point at what you do have.
@@ -753,7 +753,7 @@ neobrix/
 │   ├── Notifications/     toasts, history, level OSD
 │   ├── Services/          singletons wrapping the native integrations
 │   └── Wallpaper/
-├── terminal/              alacritty, kitty, fastfetch
+├── terminal/              kitty, fastfetch, alacritty
 ├── theming/darkreader/    importable Dark Reader config (generated)
 ├── greeter/               login screen: regreet css/toml + greetd config
 ├── scripts/               neobrix, -theme, -wallpaper, -screenshot,

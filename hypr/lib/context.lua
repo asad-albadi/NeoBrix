@@ -11,7 +11,7 @@ local ctx = {}
 -- ── applications ────────────────────────────────────────────────────────────
 -- One definition each, referenced by binds and rules alike.
 ctx.apps = {
-    terminal     = "alacritty",
+    terminal     = "kitty",
     file_manager = "dolphin",
     browser      = "zen-browser",
     editor       = "gnome-text-editor --new-window",
@@ -19,7 +19,7 @@ ctx.apps = {
     -- notepad, not spawn an Electron IDE for a one-line change.
     ide          = "cursor",
     calculator   = "gnome-calculator",
-    monitor      = "alacritty -e btop",
+    monitor      = "kitty btop",
 }
 
 -- UWSM manages the session, so graphical applications are launched into their
