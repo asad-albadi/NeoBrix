@@ -45,6 +45,12 @@ Singleton {
     property string username: Quickshell.env("USER") || "user"
     property string shellName: ""
     property int packageCount: 0
+    // -Qqm is "foreign" — installed but in no sync database. That is the AUR in
+    // all but the rare case of something built locally by hand, and AUR is the
+    // word a user recognises.
+    property int packageNative: 0
+    property int packageForeign: 0
+    property int packageFlatpak: 0
 
     // ── hardware ────────────────────────────────────────────────────────────
     property string cpuModel: ""
@@ -310,10 +316,21 @@ Singleton {
 
     Process {
         id: pkgProc
-        command: ["sh", "-c", "pacman -Qq 2>/dev/null | wc -l"]
+        command: ["sh", "-c",
+            "pacman -Qq 2>/dev/null | wc -l;" +
+            "pacman -Qqn 2>/dev/null | wc -l;" +
+            "pacman -Qqm 2>/dev/null | wc -l;" +
+            "if command -v flatpak >/dev/null 2>&1; then " +
+              "flatpak list --app 2>/dev/null | wc -l; else echo 0; fi"]
         running: true
         stdout: StdioCollector {
-            onStreamFinished: root.packageCount = parseInt(text.trim()) || 0
+            onStreamFinished: {
+                const l = text.trim().split("\n").map(v => parseInt(v.trim()) || 0);
+                root.packageCount = l[0] || 0;
+                root.packageNative = l[1] || 0;
+                root.packageForeign = l[2] || 0;
+                root.packageFlatpak = l[3] || 0;
+            }
         }
     }
 

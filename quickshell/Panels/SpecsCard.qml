@@ -44,11 +44,23 @@ BrixCard {
             Spec { label: "KERNEL"; value: SysInfo.kernel;    glyph: "󰌽"; accent: Theme.tertiary }
             Spec { label: "SHELL";  value: SysInfo.shellName; glyph: "󰆍"; accent: Theme.secondary }
             Spec {
-                // Spans, because it is the odd one out of the half-width tiles
-                // and a hole beside it reads as something failing to load.
+                // Spans the grid, so there is room to say where they came from
+                // rather than only how many there are. Each source appears only
+                // if it has anything in it: no flatpak runtime, no flatpak
+                // count, and a machine with nothing from the AUR does not need
+                // telling that it has none.
                 Layout.columnSpan: 2
                 label: "PACKAGES"
-                value: SysInfo.packageCount > 0 ? String(SysInfo.packageCount) : "—"
+                value: {
+                    if (SysInfo.packageCount <= 0) return "—";
+                    const from = [];
+                    if (SysInfo.packageNative > 0) from.push(SysInfo.packageNative + " repo");
+                    if (SysInfo.packageForeign > 0) from.push(SysInfo.packageForeign + " AUR");
+                    if (SysInfo.packageFlatpak > 0) from.push(SysInfo.packageFlatpak + " flatpak");
+                    return from.length > 0
+                           ? SysInfo.packageCount + "  ·  " + from.join(" · ")
+                           : String(SysInfo.packageCount);
+                }
                 glyph: "󰏖"
                 accent: Theme.warning
             }
