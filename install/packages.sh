@@ -50,6 +50,8 @@ SERVICES=(
 UTILS=(
     wl-clipboard cliphist
     eza                     # ls in the shell's aliases; icons need the nerd font
+    gpu-screen-recorder     # the control centre's Record action; encodes on the
+                            # GPU, so a 1080p capture costs almost nothing
     grim slurp satty
     brightnessctl
     libnotify

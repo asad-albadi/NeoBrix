@@ -132,6 +132,19 @@ Item {
                     }
                     ActionRow {
                         Layout.fillWidth: true
+                        // Reads as what pressing it will do, not as what is
+                        // happening: a row saying "Record" while recording would
+                        // be the one thing you must not misread here.
+                        icon: Rec.recording ? "󰓛" : "󰑋"
+                        label: Rec.recording ? "Stop recording" : "Record screen"
+                        accent: Rec.recording ? Theme.error : Theme.secondary
+                        // The panel stays open, unlike Screenshot: stopping is
+                        // the other half of this button, and closing the panel
+                        // to start would hide the way to stop.
+                        onActivated: Rec.toggle()
+                    }
+                    ActionRow {
+                        Layout.fillWidth: true
                         icon: "󰸉"; label: "Wallpaper"; accent: Theme.pink
                         onActivated: Quickshell.execDetached(["neobrix-wallpaper", "next"])
                     }

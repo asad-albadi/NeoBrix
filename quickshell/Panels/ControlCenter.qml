@@ -33,11 +33,13 @@ BrixPopup {
     onPanelOpened: {
         SysInfo.subscribe();
         Media.subscribePosition();
+        Rec.subscribe();
         SysInfo.refreshPackages();
     }
     onPanelClosed: {
         SysInfo.unsubscribe();
         Media.unsubscribePosition();
+        Rec.unsubscribe();
     }
 
     BrixCard {

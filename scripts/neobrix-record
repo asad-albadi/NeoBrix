@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Screen recording for Hyprland.
+#
+#   neobrix-record toggle   start if idle, stop if recording — what the panel calls
+#   neobrix-record start
+#   neobrix-record stop
+#   neobrix-record status   exit 0 while recording, 1 when idle
+#
+# Recordings land in ~/Videos/Recordings, named by the time they started.
+#
+# No audio, deliberately. A desktop that starts capturing a microphone because a
+# button was pressed is not something to ship; add -a to the command below if you
+# want it, knowing that is what you are turning on.
+#
+# gpu-screen-recorder encodes on the GPU, so a 1080p60 capture costs almost
+# nothing. wf-recorder is a drop-in alternative for anyone who prefers it, but
+# the invocation below is the one that is tested.
+
+set -euo pipefail
+
+DIR="${NEOBRIX_RECORD_DIR:-$(xdg-user-dir VIDEOS 2>/dev/null || echo "$HOME/Videos")/Recordings}"
+FPS="${NEOBRIX_RECORD_FPS:-30}"
+PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/neobrix-record.pid"
+OUTFILE="$PIDFILE.out"
+REC=gpu-screen-recorder
+
+notify() { notify-send -a "Recording" "$1" "${2:-}" 2>/dev/null || true; }
+fail() {
+    notify-send -a "Recording" -u critical "Recording failed" "$1" 2>/dev/null || true
+    printf 'neobrix-record: %s\n' "$1" >&2
+    exit 1
+}
+
+# The pidfile alone is not proof: a recorder killed by something else leaves one
+# behind, and a stale pid can even belong to an unrelated process by then.
+running_pid() {
+    [ -r "$PIDFILE" ] || return 1
+    local p
+    p="$(cat "$PIDFILE" 2>/dev/null)" || return 1
+    [ -n "$p" ] || return 1
+    kill -0 "$p" 2>/dev/null || return 1
+    printf '%s\n' "$p"
+}
+
+focused_output() {
+    hyprctl -j monitors | python -c '
+import json,sys
+for m in json.load(sys.stdin):
+    if m.get("focused"):
+        print(m["name"]); break'
+}
+
+start() {
+    if running_pid >/dev/null; then notify "Already recording"; return 0; fi
+    command -v "$REC" >/dev/null || fail "$REC is not installed"
+    mkdir -p "$DIR"
+    local out mon
+    out="$DIR/$(date +%Y-%m-%d_%H-%M-%S).mp4"
+    mon="$(focused_output)" || true
+    [ -n "$mon" ] || fail "could not work out which monitor is focused"
+
+    # -cursor yes: a recording of a desktop with no pointer in it is hard to
+    # follow, since half of what happens is where the pointer went.
+    "$REC" -w "$mon" -f "$FPS" -k h264 -cursor yes -q very_high -o "$out" \
+        >/dev/null 2>&1 &
+    local pid=$!
+    printf '%s\n' "$pid" > "$PIDFILE"
+    printf '%s\n' "$out" > "$OUTFILE"
+
+    # Give it a moment and check it is still there: a recorder that cannot open
+    # the output or the monitor exits at once, and reporting "started" then would
+    # be a lie the user only discovers when they look for the file.
+    sleep 0.8
+    if ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$PIDFILE" "$OUTFILE"
+        fail "the recorder exited immediately"
+    fi
+    notify "Recording started" "$(basename "$out")"
+}
+
+stop() {
+    local pid out
+    if ! pid="$(running_pid)"; then
+        rm -f "$PIDFILE" "$OUTFILE"
+        notify "Nothing to stop"
+        return 0
+    fi
+    # SIGINT, not SIGTERM: the recorder writes the container's index on
+    # interrupt. Killed outright it leaves a file no player will open.
+    kill -INT "$pid" 2>/dev/null || true
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 60 ]; do
+        sleep 0.1; waited=$((waited + 1))
+    done
+    out="$(cat "$OUTFILE" 2>/dev/null || true)"
+    rm -f "$PIDFILE" "$OUTFILE"
+    if [ -n "$out" ] && [ -s "$out" ]; then
+        notify "Recording saved" "$out"
+    else
+        notify "Recording stopped" "nothing was written"
+    fi
+}
+
+case "${1:-toggle}" in
+    start)  start ;;
+    stop)   stop ;;
+    toggle) if running_pid >/dev/null; then stop; else start; fi ;;
+    status) running_pid >/dev/null ;;
+    *)      printf 'usage: neobrix-record start|stop|toggle|status\n' >&2; exit 2 ;;
+esac
