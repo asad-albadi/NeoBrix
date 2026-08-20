@@ -49,6 +49,7 @@ SERVICES=(
 # ── utilities used by keybinds and scripts ──────────────────────────────────
 UTILS=(
     wl-clipboard cliphist
+    eza                     # ls in the shell's aliases; icons need the nerd font
     grim slurp satty
     brightnessctl
     libnotify

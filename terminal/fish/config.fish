@@ -14,4 +14,26 @@ if status is-interactive
             fastfetch
         end
     end
+
+    # ls is eza, laid out like `ls -ltr`: long, oldest first, newest last, which
+    # is the ordering worth having in a directory you are working in.
+    #
+    # --sort=modified is already oldest-first, so there is no --reverse here;
+    # adding one would put the newest at the top, which is the opposite of -ltr.
+    # Sizes are human-readable by default (3.1M, 1.5k), so nothing asks for it.
+    #
+    # Icons are decided here rather than with --icons=auto. eza's auto did not
+    # emit them under a pty in testing, and a flag whose detection cannot be
+    # observed working is not one to ship; `isatty stdout` is a question fish can
+    # answer directly. Piped output therefore stays free of glyphs, so `ls | grep`
+    # and `ls > file` behave.
+    if command -q eza
+        function ls --wraps eza --description 'eza, long and oldest-first'
+            if isatty stdout
+                command eza --long --icons=always --sort=modified $argv
+            else
+                command eza --long --sort=modified $argv
+            end
+        end
+    end
 end
