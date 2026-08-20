@@ -90,6 +90,8 @@ done
 # copy, and this script sources it once the repository exists. The rule it
 # encodes matters for this file in particular — run as `curl … | bash`, stdin is
 # the script itself, so anything reading stdin would eat the remaining source.
+# That applies to every child process too, not just to questions asked here; see
+# the `child` helper below, which is how the children are invoked.
 
 # ── refuse the wrong machine ─────────────────────────────────────────────────
 STEP="environment checks"
@@ -171,17 +173,36 @@ step "$(git -C "$DIR" log -1 --format='%h %s')"
 # shellcheck source=lib/ask.sh
 source "$DIR/install/lib/ask.sh"
 
+# ── stdin for the children ───────────────────────────────────────────────────
+# Run as `curl … | bash`, this script's stdin is its own remaining source. A
+# child that reads stdin therefore does not read the user, it reads the rest of
+# the install and consumes it: `sudo pacman -S` asked "Proceed with
+# installation? [Y/n]", swallowed everything below the packages step, and the
+# run ended there having deployed nothing. Every fresh install hit it.
+#
+# So no child inherits our stdin. It gets the terminal when there is one, which
+# keeps pacman's confirmation a real question the user can still answer no to —
+# that prompt is worth keeping, since repository packages can displace -git
+# builds someone else on the machine depends on. With no terminal it gets
+# /dev/null, so a child that reads stdin sees EOF instead of source code.
+#
+# This is set here, at the call sites, rather than around the one pacman line:
+# the next child to grow a prompt is then already covered.
+NB_CHILD_STDIN=/dev/null
+[[ -n ${NB_TTY:-} ]] && NB_CHILD_STDIN="$NB_TTY"
+child() { "$@" < "$NB_CHILD_STDIN"; }
+
 # ── uninstall short-circuit ──────────────────────────────────────────────────
 if (( DO_UNINSTALL )); then
     STEP="uninstalling"
-    exec "$DIR/install/uninstall.sh" $( (( ASSUME_YES )) && echo --yes )
+    exec "$DIR/install/uninstall.sh" $( (( ASSUME_YES )) && echo --yes ) < "$NB_CHILD_STDIN"
 fi
 
 # ── packages ─────────────────────────────────────────────────────────────────
 if (( DO_PACKAGES )); then
     STEP="installing packages"
     info "installing packages (sudo pacman)"
-    "$DIR/install/packages.sh"
+    child "$DIR/install/packages.sh"
 else
     warn "skipping packages (--no-packages)"
 fi
@@ -190,11 +211,11 @@ fi
 # Detects only; every removal is confirmed one item at a time, defaults to
 # keeping, and backs up to ~/.config-backup/ first.
 STEP="checking for competing desktop setups"
-"$DIR/install/cleanup.sh" $( (( ASSUME_YES )) && echo --yes )
+child "$DIR/install/cleanup.sh" $( (( ASSUME_YES )) && echo --yes )
 
 # ── deploy ───────────────────────────────────────────────────────────────────
 STEP="deploying configuration"
-"$DIR/install/deploy.sh"
+child "$DIR/install/deploy.sh"
 
 # ── login screen, last and opt-in ────────────────────────────────────────────
 # The desktop is in place by now, so a greeter problem cannot also mean a broken
@@ -208,11 +229,11 @@ STEP="deploying configuration"
 # activated — never a machine that cannot log in.
 STEP="staging the login screen"
 if (( DO_GREETER )); then
-    "$DIR/install/deploy.sh" --greeter-only
+    child "$DIR/install/deploy.sh" --greeter-only
     # Staging succeeded; activation is a separate, stricter question that
     # neobrix-greeter asks itself — and only ever at a terminal.
     if (( ! ASSUME_YES )) && [[ -n ${NB_TTY:-} ]]; then
-        "$DIR/scripts/neobrix-greeter" enable || true
+        child "$DIR/scripts/neobrix-greeter" enable || true
     else
         step "not activated: activation only happens when asked at a terminal"
         step "later, from a terminal:  neobrix greeter enable"
@@ -220,9 +241,9 @@ if (( DO_GREETER )); then
 elif (( NO_SUDO )); then
     step "login screen untouched — no sudo on this machine to write /etc/greetd"
 elif confirm no "Also stage the Neobrix login screen? Writes /etc/greetd (sudo); staging alone does not switch anything"; then
-    "$DIR/install/deploy.sh" --greeter-only
+    child "$DIR/install/deploy.sh" --greeter-only
     if (( ! ASSUME_YES )) && [[ -n ${NB_TTY:-} ]]; then
-        "$DIR/scripts/neobrix-greeter" enable || true
+        child "$DIR/scripts/neobrix-greeter" enable || true
     fi
 else
     step "login screen untouched. Log into the Neobrix session first, then:"

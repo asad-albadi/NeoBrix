@@ -140,6 +140,12 @@ fi
 printf '\033[32m==>\033[0m missing: %s\n' "${missing[*]}"
 [[ "${1:-}" == "--check" ]] && exit 1
 
+# No --noconfirm: this is the one moment the user should see what is about to be
+# installed and be able to refuse, since repository packages can displace -git
+# builds something else on the machine depends on. Pacman reads that answer from
+# *stdin*, which is why bootstrap.sh hands its children a terminal (or /dev/null)
+# and never its own stdin — piped, its stdin is the rest of the install script,
+# and pacman would eat it. If you add a caller, give this script a real stdin.
 sudo pacman -S --needed "${missing[@]}"
 
 # mpv-mpris is optional but makes mpv show up in the shell's media controls.
