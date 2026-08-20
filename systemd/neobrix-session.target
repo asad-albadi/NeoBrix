@@ -1,6 +1,6 @@
 [Unit]
 Description=Neobrix desktop session
-Documentation=file:///home/asad/Projects/neobrix/README.md
+Documentation=https://github.com/asad-albadi/NeoBrix
 BindsTo=graphical-session.target
 After=graphical-session.target
 # One handle for the whole desktop:
