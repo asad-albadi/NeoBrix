@@ -32,13 +32,17 @@ Item {
 
             BrixCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 132
+                // Sized to its contents rather than a fixed 132: a full name
+                // long enough to wrap would otherwise run out of the card.
+                Layout.preferredHeight: idCol.implicitHeight + Theme.spaceMd * 2
                 radius: Theme.radiusMd
                 color: Theme.surface
                 shadowOffset: Theme.shadowSm
 
                 ColumnLayout {
+                    id: idCol
                     anchors.centerIn: parent
+                    width: parent.width - Theme.spaceMd * 2
                     spacing: Theme.spaceXs
 
                     BrixCard {
@@ -51,8 +55,8 @@ Item {
 
                         Text {
                             anchors.centerIn: parent
-                            text: SysInfo.username.length > 0
-                                  ? SysInfo.username.charAt(0).toUpperCase() : "?"
+                            text: SysInfo.displayName.length > 0
+                                  ? SysInfo.displayName.charAt(0).toUpperCase() : "?"
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontXl + 4
                             font.weight: Theme.weightHeavy
@@ -60,9 +64,19 @@ Item {
                         }
                     }
 
+                    // The account's real name, with the username left to the
+                    // user@host line below where it belongs — printing the login
+                    // name twice, large and then small, said nothing the second
+                    // time. Falls back to the username when GECOS is empty.
                     Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: SysInfo.username
+                        Layout.fillWidth: true
+                        // Wraps rather than elides: a name is not much use with
+                        // its end cut off, and there is room downwards.
+                        text: SysInfo.displayName
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontLg
                         font.weight: Theme.weightHeavy

@@ -43,6 +43,10 @@ Singleton {
     property string kernel: ""
     property string distro: ""
     property string username: Quickshell.env("USER") || "user"
+    // GECOS, first comma-separated field. Empty on an account where nobody set
+    // one, which is why anything showing it falls back to the username.
+    property string fullName: ""
+    readonly property string displayName: root.fullName !== "" ? root.fullName : root.username
     property string shellName: ""
     property int packageCount: 0
     // -Qqm is "foreign" — installed but in no sync database. That is the AUR in
@@ -242,10 +246,13 @@ Singleton {
     // ── one-shot static probes ──────────────────────────────────────────────
     Process {
         command: ["sh", "-c",
-            "printf '%s\\n%s\\n%s\\n%s\\n' " +
+            "printf '%s\\n%s\\n%s\\n%s\\n%s\\n' " +
             "\"$(uname -n)\" \"$(uname -r)\" " +
             "\"$(. /etc/os-release 2>/dev/null; printf '%s' \"${PRETTY_NAME:-$NAME}\")\" " +
-            "\"$(basename \"${SHELL:-sh}\")\""]
+            "\"$(basename \"${SHELL:-sh}\")\" " +
+            // id -un rather than $USER: the shell running this is not a login
+            // shell and does not have to have it set.
+            "\"$(getent passwd \"$(id -un)\" | cut -d: -f5 | cut -d, -f1)\""]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -254,6 +261,7 @@ Singleton {
                 root.kernel = (l[1] || "").trim();
                 root.distro = (l[2] || "").trim();
                 root.shellName = (l[3] || "").trim();
+                root.fullName = (l[4] || "").trim();
             }
         }
     }
