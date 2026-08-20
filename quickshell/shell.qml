@@ -58,6 +58,11 @@ ShellRoot {
     SessionPanel {}
     ClipboardPanel {}
 
+    // Bar popovers — one per indicator, each anchored under its own glyph.
+    AudioPopover {}
+    MicPopover {}
+    PowerPopover {}
+
     // Toast layer and level OSD.
     NotificationLayer {}
     Osd {}

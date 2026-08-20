@@ -31,13 +31,26 @@ PanelWindow {
     readonly property bool open: panel !== "" && Panels.isOpen(panel)
 
     // center | topRight | topLeft | topCenter | bottomCenter
+    // center | topCenter | bottomCenter | topLeft | topRight | topAnchor
     property string alignment: "center"
+    // topAnchor only: screen x to centre the card under.
+    property real anchorX: 0
     property bool scrimEnabled: true
     property bool closeOnClickOutside: true
+    // Leave the bar itself clickable while this is open. Without it the popup's
+    // full-screen surface swallows the first click on any other indicator, so
+    // moving from one popover to its neighbour took two clicks — one to dismiss,
+    // one to open — and read as the bar ignoring the first.
+    property bool barClickThrough: alignment === "topAnchor"
     property int edgeMargin: Theme.barExclusive + Theme.spaceSm
     property int sideMargin: Theme.barMargin + Theme.spaceSm
     property int contentWidth: 400
     property int contentHeight: 300
+
+    // Centred under anchorX, but never off-screen: a popover under the last
+    // indicator would otherwise hang past the right edge.
+    readonly property int anchoredX: Math.round(Math.max(sideMargin,
+        Math.min(anchorX - contentWidth / 2, width - contentWidth - sideMargin)))
 
     signal panelClosed()
     signal panelOpened()
@@ -67,8 +80,23 @@ PanelWindow {
     // While closing, the surface is still mapped but must not swallow clicks —
     // otherwise every panel eats input across the whole screen for the duration of
     // its fade-out, which reads as "the bar ignored my click".
-    mask: open ? null : closedMask
+    mask: open ? (root.barClickThrough ? barlessMask : null) : closedMask
     Region { id: closedMask }
+
+    // Everything below the bar, so a click on the bar itself reaches the bar.
+    //
+    // Expressed as one rectangle rather than the screen minus a subtracted
+    // strip: a nested Region with Intersection.Subtract had no observable
+    // effect here — clicks in the cut-out area were still taken by this
+    // surface, tested up to a 400px strip — and the bar spans the full width at
+    // the top, so what is wanted is a single rect anyway.
+    Region {
+        id: barlessMask
+        x: 0
+        y: Theme.barExclusive
+        width: root.width
+        height: Math.max(0, root.height - Theme.barExclusive)
+    }
 
     onOpenChanged: {
         if (open) {
@@ -125,13 +153,16 @@ PanelWindow {
         anchors.bottomMargin: root.alignment === "bottomCenter" ? root.edgeMargin : 0
         anchors.right: root.alignment === "topRight" ? parent.right : undefined
         anchors.rightMargin: root.alignment === "topRight" ? root.sideMargin : 0
-        anchors.left: root.alignment === "topLeft" ? parent.left : undefined
-        anchors.leftMargin: root.alignment === "topLeft" ? root.sideMargin : 0
+        anchors.left: (root.alignment === "topLeft" || root.alignment === "topAnchor")
+                      ? parent.left : undefined
+        anchors.leftMargin: root.alignment === "topAnchor" ? root.anchoredX
+                          : root.alignment === "topLeft" ? root.sideMargin : 0
 
         opacity: root.open ? 1 : 0
         scale: root.open ? 1 : 0.95
         transformOrigin: root.alignment === "topRight" ? Item.TopRight
                        : root.alignment === "topLeft" ? Item.TopLeft
+                       : root.alignment === "topAnchor" ? Item.Top
                        : Item.Center
 
         Behavior on opacity { NumberAnimation { duration: Theme.durNormal; easing.type: Theme.easing } }

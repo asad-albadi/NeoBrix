@@ -19,7 +19,15 @@ Singleton {
     id: root
 
     // "" | launcher | control | calendar | session | clipboard | notifications
+    //    | audio | mic | bluetooth | network | power   (bar popovers)
     property string current: ""
+
+    // Screen x of the bar item the open popover hangs under. One value is
+    // enough because only one panel is ever open, and it has to be told rather
+    // than computed: which indicators exist depends on the hardware, so their
+    // positions are not fixed and a hardcoded offset would drift the moment a
+    // machine has no battery or no bluetooth.
+    property real popoverAnchorX: 0
     // Sub-view inside the control center.
     readonly property var controlTabs: ["system", "connectivity", "notifications"]
     property string controlTab: "system"
@@ -27,6 +35,10 @@ Singleton {
     readonly property bool anyOpen: current !== ""
 
     function open(name) { current = name; }
+    function togglePopover(name, anchorX) {
+        popoverAnchorX = anchorX;
+        toggle(name);
+    }
     function close() { current = ""; }
     function toggle(name) { current = (current === name) ? "" : name; }
     function isOpen(name) { return current === name; }
