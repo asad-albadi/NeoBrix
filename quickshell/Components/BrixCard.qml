@@ -20,7 +20,10 @@ Rectangle {
     color: Theme.surface
     radius: Theme.radiusMd
     border.width: outlined ? Theme.border : 0
-    border.color: Theme.outline
+    // Overridable, so a control whose fill is dark can ask for an outline that
+    // can be seen against it. Cards keep the palette's outline by default.
+    property color borderColor: Theme.outline
+    border.color: borderColor
     antialiasing: true
 
     Rectangle {

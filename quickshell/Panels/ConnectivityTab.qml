@@ -325,6 +325,18 @@ Item {
                                 property bool awaitingForget: false
                                 property bool askPsk: false
                                 property bool showActions: false
+
+                                // The row's own fill, so controls drawn on it can
+                                // pick an outline that separates them from it. A
+                                // dark button reads perfectly well on the green
+                                // connected row and wants the ordinary dark
+                                // border; the same button on an unfilled row does
+                                // not, and needs a light one.
+                                readonly property color rowColor:
+                                    netRow.net.connected ? Theme.secondary
+                                  : netRow.askPsk || netRow.showActions ? Theme.surfaceDeep
+                                  : netMouse.containsMouse ? Theme.surfaceDeep
+                                  : Theme.surface
                                 property string failure: ""
 
                                 width: ListView.view.width
@@ -442,9 +454,7 @@ Item {
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: Theme.radiusXs
-                                    color: netRow.net.connected ? Theme.secondary
-                                         : netRow.askPsk || netRow.showActions ? Theme.surfaceDeep
-                                         : netMouse.containsMouse ? Theme.surfaceDeep : "transparent"
+                                    color: netRow.rowColor
                                 }
 
                                 ColumnLayout {
@@ -598,6 +608,7 @@ Item {
                                             text: netRow.net.known ? "Forget & join" : "Join"
                                             fontSize: 9
                                             vPadding: 4
+                                            behind: netRow.rowColor
                                             accent: Theme.primary
                                             enabled: pskField.text.length > 0
                                             onClicked: netRow.submitPsk()
@@ -606,6 +617,7 @@ Item {
                                             text: "Cancel"
                                             fontSize: 9
                                             vPadding: 4
+                                            behind: netRow.rowColor
                                             accent: Theme.surfaceAlt
                                             onClicked: netRow.closePsk()
                                         }
@@ -624,6 +636,7 @@ Item {
                                             text: netRow.needsPsk ? "Join with passphrase" : "Connect"
                                             fontSize: 9
                                             vPadding: 4
+                                            behind: netRow.rowColor
                                             accent: Theme.surfaceAlt
                                             onClicked: {
                                                 netRow.showActions = false;
@@ -635,6 +648,7 @@ Item {
                                             text: "Disconnect"
                                             fontSize: 9
                                             vPadding: 4
+                                            behind: netRow.rowColor
                                             accent: Theme.surfaceAlt
                                             onClicked: {
                                                 netRow.showActions = false;
@@ -646,6 +660,7 @@ Item {
                                             text: "Forget"
                                             fontSize: 9
                                             vPadding: 4
+                                            behind: netRow.rowColor
                                             accent: Theme.error
                                             onClicked: {
                                                 netRow.showActions = false;
@@ -850,6 +865,13 @@ Item {
         readonly property bool isPaired: btRow.dev && (btRow.dev.paired || btRow.dev.bonded)
         property bool showActions: false
 
+        // See netRow.rowColor.
+        readonly property color rowColor:
+            btRow.dev && btRow.dev.connected ? Theme.info
+          : btRow.showActions ? Theme.surfaceDeep
+          : btMouse.containsMouse ? Theme.surfaceDeep
+          : Theme.surface
+
         // Quickshell logs BlueZ's pairing error but exposes no signal carrying
         // it, so failure is inferred from the state it leaves behind: `pairing`
         // dropped without `paired` coming up. Without this the attempt failed
@@ -887,9 +909,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             radius: Theme.radiusXs
-            color: btRow.dev && btRow.dev.connected ? Theme.info
-                 : btRow.showActions ? Theme.surfaceDeep
-                 : btMouse.containsMouse ? Theme.surfaceDeep : "transparent"
+            color: btRow.rowColor
         }
 
         ColumnLayout {
@@ -979,6 +999,7 @@ Item {
                     text: "Cancel"
                     fontSize: 9
                     vPadding: 4
+                    behind: btRow.rowColor
                     accent: Theme.warning
                     onClicked: btRow.dev.cancelPair()
                 }
@@ -987,6 +1008,7 @@ Item {
                     text: "Pair"
                     fontSize: 9
                     vPadding: 4
+                    behind: btRow.rowColor
                     accent: Theme.primary
                     onClicked: btRow.dev.pair()
                 }
@@ -995,6 +1017,7 @@ Item {
                     text: btRow.dev && btRow.dev.connected ? "Disconnect" : "Connect"
                     fontSize: 9
                     vPadding: 4
+                    behind: btRow.rowColor
                     accent: btRow.dev && btRow.dev.connected ? Theme.surface : Theme.surfaceAlt
                     onClicked: {
                         if (btRow.dev.connected) btRow.dev.disconnect();
@@ -1020,6 +1043,7 @@ Item {
                     text: "Forget"
                     fontSize: 9
                     vPadding: 4
+                    behind: btRow.rowColor
                     accent: Theme.error
                     onClicked: {
                         btRow.showActions = false;

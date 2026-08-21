@@ -13,6 +13,9 @@ Item {
     property string text: ""
     property string icon: ""            // nerd-font glyph
     property color accent: Theme.surface
+    // The colour behind this button, for choosing an outline that separates it
+    // from it. Rows with their own fill should pass theirs.
+    property color behind: Theme.surface
     // Ink for the surface this button actually is, not for the page it sits on.
     // Defaulting to Theme.foreground meant a button given a light accent drew
     // light text on it in dusk — every accent in both palettes is light, so
@@ -48,6 +51,10 @@ Item {
         color: root.active ? root.activeAccent
              : root.hovered ? Qt.darker(root.accent, Theme.dark ? 0.85 : 1.06)
              : root.accent
+        // A button is its outline in this design, so the outline has to separate
+        // it from whatever it is sitting on — which the button cannot see, and
+        // so is told. The default is the ordinary panel surface.
+        borderColor: Theme.outlineFor(card.color, root.behind)
         border.width: root.active ? Theme.borderThick : Theme.border
 
         Behavior on color { ColorAnimation { duration: Theme.durFast } }

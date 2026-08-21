@@ -149,6 +149,25 @@ Singleton {
         return contrast(c, onAccent) >= contrast(c, foreground) ? onAccent : foreground;
     }
 
+    // The outline for a control, given its fill and the surface behind it.
+    //
+    // This design defines a control with its border, and that border was always
+    // the palette's darkest colour. On a light fill that is the whole look. On a
+    // dark fill over a dark surface there is nothing to see at all, which is how
+    // a dark button on a dark row in dusk came to be visible only by its text.
+    //
+    // The deciding question is the fill against its background, not the fill on
+    // its own: a dark button on the green connected row is perfectly legible and
+    // wants the normal dark outline. Only when fill and background are close
+    // does the border have to do the separating, and then it takes the light
+    // side — foregroundDim rather than foreground, since an outline that bright
+    // on every dark control shouts.
+    function outlineFor(fill, behind) {
+        if (contrast(fill, behind) >= 1.8) return outline;
+        return contrast(fill, outline) >= contrast(fill, foregroundDim)
+               ? outline : foregroundDim;
+    }
+
     // Accent rotation used for tiles/badges that want variety without randomness.
     readonly property var accents: [primary, secondary, tertiary, pink, info, warning]
     function accent(i) { return accents[Math.abs(i) % accents.length]; }
