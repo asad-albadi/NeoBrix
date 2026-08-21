@@ -32,6 +32,17 @@ Item {
     // popover and the tab instantiate the same component, so a fix lands in
     // both. The click-handling bug in these rows was worth fixing once.
     property string show: "all"
+
+    // How much taller a row gets when its actions or passphrase field appear.
+    //
+    // Three things have to agree on this: the row's height, the height of the
+    // strip inside it, and the bottom margin that keeps the row's own MouseArea
+    // off those controls. They were three separate 30s, which is how the strip
+    // ended up 28 tall inside 30 of space with no margin under it — the buttons
+    // sat flush on the card's bottom edge and read as stuck to it rather than as
+    // buttons. One property now, and the strip is inset from it.
+    readonly property int actionsHeight: 40
+    readonly property int actionsInset: Theme.spaceXs
     readonly property bool showWifi: root.show === "all" || root.show === "wifi"
     readonly property bool showBt: root.show === "all" || root.show === "bluetooth"
 
@@ -317,7 +328,8 @@ Item {
                                 property string failure: ""
 
                                 width: ListView.view.width
-                                height: 34 + (netRow.askPsk || netRow.showActions ? 30 : 0)
+                                height: 34 + (netRow.askPsk || netRow.showActions
+                                              ? root.actionsHeight : 0)
 
                                 // Row click: connect where that is all it takes,
                                 // otherwise open the passphrase field in place.
@@ -529,7 +541,8 @@ Item {
                                     RowLayout {
                                         visible: netRow.askPsk
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 28
+                                        Layout.preferredHeight: root.actionsHeight - root.actionsInset * 2
+                                        Layout.bottomMargin: root.actionsInset
                                         spacing: Theme.spaceXs
 
                                         BrixCard {
@@ -583,16 +596,16 @@ Item {
 
                                         BrixButton {
                                             text: netRow.net.known ? "Forget & join" : "Join"
-                                            fontSize: 8
-                                            vPadding: 2
+                                            fontSize: 9
+                                            vPadding: 4
                                             accent: Theme.primary
                                             enabled: pskField.text.length > 0
                                             onClicked: netRow.submitPsk()
                                         }
                                         BrixButton {
                                             text: "Cancel"
-                                            fontSize: 8
-                                            vPadding: 2
+                                            fontSize: 9
+                                            vPadding: 4
                                             accent: Theme.surfaceAlt
                                             onClicked: netRow.closePsk()
                                         }
@@ -602,14 +615,15 @@ Item {
                                     RowLayout {
                                         visible: netRow.showActions
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 28
+                                        Layout.preferredHeight: root.actionsHeight - root.actionsInset * 2
+                                        Layout.bottomMargin: root.actionsInset
                                         spacing: Theme.spaceXs
 
                                         BrixButton {
                                             visible: !netRow.net.connected
                                             text: netRow.needsPsk ? "Join with passphrase" : "Connect"
-                                            fontSize: 8
-                                            vPadding: 2
+                                            fontSize: 9
+                                            vPadding: 4
                                             accent: Theme.surfaceAlt
                                             onClicked: {
                                                 netRow.showActions = false;
@@ -619,8 +633,8 @@ Item {
                                         BrixButton {
                                             visible: netRow.net.connected
                                             text: "Disconnect"
-                                            fontSize: 8
-                                            vPadding: 2
+                                            fontSize: 9
+                                            vPadding: 4
                                             accent: Theme.surfaceAlt
                                             onClicked: {
                                                 netRow.showActions = false;
@@ -630,8 +644,8 @@ Item {
                                         BrixButton {
                                             visible: netRow.net.known
                                             text: "Forget"
-                                            fontSize: 8
-                                            vPadding: 2
+                                            fontSize: 9
+                                            vPadding: 4
                                             accent: Theme.error
                                             onClicked: {
                                                 netRow.showActions = false;
@@ -645,7 +659,8 @@ Item {
                                 MouseArea {
                                     id: netMouse
                                     anchors.fill: parent
-                                    anchors.bottomMargin: netRow.askPsk || netRow.showActions ? 30 : 0
+                                    anchors.bottomMargin: netRow.askPsk || netRow.showActions
+                                                          ? root.actionsHeight : 0
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: netRow.toggleActions()
@@ -862,7 +877,7 @@ Item {
         }
 
         Layout.fillWidth: true
-        implicitHeight: 34 + (btRow.showActions ? 30 : 0)
+        implicitHeight: 34 + (btRow.showActions ? root.actionsHeight : 0)
 
         Connections {
             target: root
@@ -952,7 +967,8 @@ Item {
             RowLayout {
                 visible: btRow.showActions
                 Layout.fillWidth: true
-                Layout.preferredHeight: 28
+                Layout.preferredHeight: root.actionsHeight - root.actionsInset * 2
+                Layout.bottomMargin: root.actionsInset
                 spacing: Theme.spaceXs
 
                 // Pairing is cancellable while it is in flight, which matters
@@ -961,24 +977,24 @@ Item {
                 BrixButton {
                     visible: btRow.dev && btRow.dev.pairing
                     text: "Cancel"
-                    fontSize: 8
-                    vPadding: 2
+                    fontSize: 9
+                    vPadding: 4
                     accent: Theme.warning
                     onClicked: btRow.dev.cancelPair()
                 }
                 BrixButton {
                     visible: btRow.dev && !btRow.dev.pairing && !btRow.isPaired
                     text: "Pair"
-                    fontSize: 8
-                    vPadding: 2
+                    fontSize: 9
+                    vPadding: 4
                     accent: Theme.primary
                     onClicked: btRow.dev.pair()
                 }
                 BrixButton {
                     visible: btRow.dev && !btRow.dev.pairing && btRow.isPaired
                     text: btRow.dev && btRow.dev.connected ? "Disconnect" : "Connect"
-                    fontSize: 8
-                    vPadding: 2
+                    fontSize: 9
+                    vPadding: 4
                     accent: btRow.dev && btRow.dev.connected ? Theme.surface : Theme.surfaceAlt
                     onClicked: {
                         if (btRow.dev.connected) btRow.dev.disconnect();
@@ -1002,8 +1018,8 @@ Item {
 
                 BrixButton {
                     text: "Forget"
-                    fontSize: 8
-                    vPadding: 2
+                    fontSize: 9
+                    vPadding: 4
                     accent: Theme.error
                     onClicked: {
                         btRow.showActions = false;
@@ -1017,7 +1033,7 @@ Item {
         MouseArea {
             id: btMouse
             anchors.fill: parent
-            anchors.bottomMargin: btRow.showActions ? 30 : 0
+            anchors.bottomMargin: btRow.showActions ? root.actionsHeight : 0
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: btRow.showActions = !btRow.showActions
