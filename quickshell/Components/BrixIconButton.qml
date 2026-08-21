@@ -12,7 +12,8 @@ Item {
     property string icon: ""
     property string iconName: ""
     property color accent: Theme.surface
-    property color iconColor: Theme.foreground
+    // See BrixButton: ink for the button's own surface, not the page's.
+    property color iconColor: Theme.textOn(accent)
     property bool active: false
     property color activeAccent: Theme.primary
     property int size: 26

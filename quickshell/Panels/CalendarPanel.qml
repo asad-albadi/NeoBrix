@@ -162,7 +162,6 @@ BrixPopup {
                     size: 24
                     radius: Theme.radiusPill
                     accent: Theme.secondary
-                    iconColor: Theme.onAccent
                     onClicked: root.monthOffset++
                 }
             }

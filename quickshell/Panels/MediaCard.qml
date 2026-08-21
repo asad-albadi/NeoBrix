@@ -243,7 +243,6 @@ BrixCard {
                 icon: Media.playing ? "󰏤" : "󰐊"
                 size: 38
                 accent: Theme.primary
-                iconColor: Theme.onAccent
                 enabled: Media.canToggle
                 onClicked: Media.toggle()
             }

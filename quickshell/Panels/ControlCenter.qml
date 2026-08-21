@@ -103,7 +103,6 @@ BrixPopup {
                 BrixIconButton {
                     icon: "󰐥"
                     accent: Theme.error
-                    iconColor: Theme.onAccent
                     tooltip: "Session"
                     onClicked: Panels.open("session")
                 }

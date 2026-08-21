@@ -255,7 +255,6 @@ Item {
                         BrixIconButton {
                             icon: "󰃭"
                             accent: Theme.tertiary
-                            iconColor: Theme.onAccent
                             tooltip: "Calendar"
                             onClicked: { Panels.close(); Panels.open("calendar"); }
                         }

@@ -62,7 +62,6 @@ PanelWindow {
                 accent: Theme.primary
                 active: Panels.isOpen("launcher")
                 activeAccent: Theme.primary
-                iconColor: Theme.onAccent
                 tooltip: "Applications  ·  Super"
                 onClicked: Panels.toggle("launcher")
                 onRightClicked: Panels.toggle("session")

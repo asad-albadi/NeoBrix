@@ -13,7 +13,12 @@ Item {
     property string text: ""
     property string icon: ""            // nerd-font glyph
     property color accent: Theme.surface
-    property color textColor: Theme.foreground
+    // Ink for the surface this button actually is, not for the page it sits on.
+    // Defaulting to Theme.foreground meant a button given a light accent drew
+    // light text on it in dusk — every accent in both palettes is light, so
+    // "accent + no textColor" was wrong every time. textOn also handles error,
+    // which is light in dawn and dark in dusk and so needs opposite ink in each.
+    property color textColor: Theme.textOn(accent)
     property bool active: false
     property color activeAccent: Theme.primary
     property int radius: Theme.radiusSm

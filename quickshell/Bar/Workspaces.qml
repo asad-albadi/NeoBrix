@@ -85,6 +85,17 @@ Item {
                 // Up to three marks. Beyond that the last one becomes a count,
                 // so a workspace with nine windows is still three marks wide and
                 // the group cannot run off the island.
+                // One expression for the fill, so the ink can be chosen against
+                // it instead of guessed. The urgent chip is Theme.error, which
+                // is light in dawn and dark in dusk — assuming onAccent put
+                // near-black text on a dark red chip in dusk.
+                readonly property color chipColor:
+                    slot.urgent ? Theme.error
+                  : slot.focused ? Theme.primary
+                  : slot.occupied ? Theme.surfaceDeep
+                  : mouse.containsMouse ? Theme.surface
+                  : "transparent"
+
                 readonly property int maxMarks: 3
                 readonly property int marks: Math.min(windows, maxMarks)
                 readonly property bool overflowing: windows > maxMarks
@@ -107,11 +118,7 @@ Item {
                     radius: Theme.radiusXs
                     shadowOffset: 0
                     border.width: slot.focused ? Theme.borderThick : Theme.border
-                    color: slot.urgent ? Theme.error
-                         : slot.focused ? Theme.primary
-                         : slot.occupied ? Theme.surfaceDeep
-                         : mouse.containsMouse ? Theme.surface
-                         : "transparent"
+                    color: slot.chipColor
 
                     Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
@@ -124,9 +131,9 @@ Item {
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSm
                             font.weight: slot.focused ? Theme.weightHeavy : Theme.weightBold
-                            color: slot.focused || slot.urgent ? Theme.onAccent
-                                 : slot.occupied ? Theme.foreground
-                                 : Theme.foregroundDim
+                            color: slot.occupied || slot.focused || slot.urgent
+                                   ? Theme.textOn(slot.chipColor)
+                                   : Theme.foregroundDim
                         }
 
                         Repeater {
@@ -177,7 +184,8 @@ Item {
                                     font.pixelSize: 8
                                     font.weight: Theme.weightBold
                                     color: slot.focused || slot.urgent
-                                           ? Theme.onAccent : Theme.foregroundDim
+                                           ? Theme.textOn(slot.chipColor)
+                                           : Theme.foregroundDim
                                 }
                             }
                         }

@@ -51,7 +51,9 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: 8
             font.weight: Theme.weightHeavy
-            color: Theme.onAccent
+            // The badge is Theme.error, light in dawn and dark in dusk, so its
+            // ink has to be chosen against it rather than assumed.
+            color: Theme.textOn(Theme.error)
         }
     }
 

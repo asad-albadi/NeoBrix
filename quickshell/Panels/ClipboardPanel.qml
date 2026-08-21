@@ -64,7 +64,6 @@ BrixPopup {
                     icon: "󰩹"
                     fontSize: Theme.fontXs
                     accent: Theme.error
-                    textColor: Theme.onAccent
                     enabled: Clip.entries.length > 0
                     onClicked: Clip.wipe()
                 }
