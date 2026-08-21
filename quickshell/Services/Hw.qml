@@ -81,4 +81,33 @@ Singleton {
             }
         }
     }
+
+    // ── power policy follows the cable ───────────────────────────────────────
+    // Unplugging drops the CPU package by 0.7 W and the internal panel to
+    // 60 Hz, which halves Hyprland's idle CPU; plugging back in restores both.
+    // The work is done by neobrix-power so it can also be run by hand.
+    readonly property bool onBattery: UPower.onBattery
+
+    // Deliberately not applied at startup. The policy is a *reaction* to the
+    // cable moving; running it on every shell start would quietly overwrite a
+    // profile the user had chosen on purpose, every login and every reload.
+    property bool policyReady: false
+    Component.onCompleted: root.policyReady = true
+
+    onOnBatteryChanged: if (root.policyReady) policyDebounce.restart()
+
+    // UPower reports a couple of transitions in quick succession around a
+    // charger being connected, and each profile change writes platform_profile
+    // and can wake a suspended dGPU, so settle before acting.
+    Timer {
+        id: policyDebounce
+        interval: 3000
+        onTriggered: policyProc.running = true
+    }
+
+    Process {
+        id: policyProc
+        command: ["neobrix-power", root.onBattery ? "battery" : "mains"]
+        running: false
+    }
 }

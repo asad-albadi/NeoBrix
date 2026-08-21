@@ -56,7 +56,10 @@ UTILS=(
     brightnessctl
     libnotify
     imagemagick librsvg     # wallpaper generation
-    python                  # screenshot geometry helpers
+    python                  # screenshot geometry helpers, and the refresh-rate
+                            # switch in neobrix-power
+    pciutils                # GPU name in the specs card and on the lock screen;
+                            # without it both fall back to the driver name
 )
 
 # ── appearance ──────────────────────────────────────────────────────────────

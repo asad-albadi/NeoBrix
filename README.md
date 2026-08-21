@@ -499,6 +499,31 @@ the parent). Every surface in the shell — bar islands, panels, chips, buttons,
 sliders, notification cards — is a `BrixCard`, which is why they all share the
 same physics: press a button and it travels into its own shadow.
 
+### Idle and power
+
+Left alone, the desktop dims at 10 minutes, locks at 15, blanks at 20 and — **on
+battery only** — suspends at 30. The steps are in `hypr/hypridle.conf` and each
+one is a `neobrix-idle` action, so they can be tried by hand.
+
+Blanking turns the backlight off as well as the output. Hyprland's `dpms off`
+disables the CRTC but not the backlight, which is a separate device it does not
+touch, so on its own it produced no measurable drop in battery draw at all — a
+black screen that still costs what a lit one does.
+
+`neobrix-power` follows the cable, driven by the shell watching UPower:
+
+| | on battery | on mains |
+|---|---|---|
+| power profile | `power-saver` | whatever was in force when the cable came out |
+| internal panel | 60 Hz | its preferred mode |
+
+Measured on an i5-11300H with a 1920x1080 144 Hz panel: `power-saver` costs
+0.7 W less at the CPU package, and 60 Hz saves 0.31 W while halving Hyprland's
+idle CPU. Only outputs named `eDP*` are re-moded — an external display is a
+deliberate desk setup and is left alone — and the policy is applied when the
+power source *changes*, never at startup, so it cannot quietly overwrite a
+profile you picked on purpose.
+
 ## Dependencies
 
 Everything is in the CachyOS/Arch repositories — no AUR helper required.
@@ -615,6 +640,8 @@ Full list: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md). The essentials:
 | `neobrix-wallpaper apply\|next\|prev\|theme\|list\|generate` | wallpaper selection |
 | `neobrix-generate-wallpapers [dir] [WxH]` | regenerate the built-in set |
 | `neobrix-theme dawn\|dusk\|current` | apply the palette to terminals, GTK, Qt and KDE |
+| `neobrix-idle dark\|light\|suspend` | the idle steps hypridle calls; `suspend` refuses unless on battery |
+| `neobrix-power auto\|battery\|mains\|status` | match the power policy to the cable |
 
 The shell is also scriptable:
 
