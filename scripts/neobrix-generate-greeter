@@ -179,6 +179,17 @@ passwordentry image {
     color: @neobrix_dim;
 }
 
+/* Password dots. GTK4 masks the buffer with U+25CF, a glyph that fills its whole
+ * monospace cell, so untracked the dots render as one unbroken sausage. Track
+ * them out until the gap is about a third of a dot — the same proportion
+ * hyprlock draws with dots_spacing, so the login screen and the lock screen
+ * mask a password the same way. Password entries only: tracking the username
+ * out with it would just look broken. */
+passwordentry,
+entry.password {
+    letter-spacing: 3px;
+}
+
 button {
     background-image: none;
     background-color: @neobrix_deep;

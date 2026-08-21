@@ -578,7 +578,15 @@ Item {
                                                 // shown, never persisted, never
                                                 // passed through a shell.
                                                 echoMode: TextInput.Password
-                                                passwordCharacter: "•"
+                                                // One masking rule across Neobrix: a solid round dot,
+                                                // gap about a third of its diameter. U+2022 is a speck
+                                                // with gaps as wide as itself; U+25CF fills its cell and
+                                                // needs tracking out, exactly like the greeter's entry
+                                                // and hyprlock's dots_spacing = 0.32.
+                                                passwordCharacter: "●"
+                                                // Only while masking: the placeholder borrows this font
+                                                // and should not be tracked out with the dots.
+                                                font.letterSpacing: text.length > 0 ? 2 : 0
                                                 focus: netRow.askPsk
                                                 activeFocusOnTab: true
 
