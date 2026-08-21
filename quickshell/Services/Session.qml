@@ -22,7 +22,10 @@ Singleton {
 
     function lock() { run("loginctl lock-session || hyprlock"); }
     function logout() {
-        run(root.underUwsm ? "uwsm stop" : "hyprctl dispatch exit");
+        // Not `hyprctl dispatch exit`: under a Lua config the dispatch argument
+        // is Lua, so the bare word is a syntax error and logout does nothing.
+        run(root.underUwsm ? "uwsm stop"
+                           : "hyprctl eval 'hl.dispatch(hl.dsp.exit())'");
     }
     function suspend() { run("systemctl suspend"); }
     function hibernate() { run("systemctl hibernate"); }
