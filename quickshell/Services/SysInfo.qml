@@ -329,18 +329,13 @@ Singleton {
             "n=$(lspci -mms $pa 2>/dev/null | tr '\\042' '\\n' | sed -n 6p);" +
             "[ x\"$n\" = x ] && n=$pv;" +
             // amdgpu states its VRAM in sysfs, which costs nothing to read.
-            // NVIDIA does not, and nvidia-smi is the only way to ask — see the
-            // note above about what that does on a laptop. Intel integrated
-            // graphics have no dedicated memory to report at all.
+            // Intel integrated graphics have no dedicated memory to report at
+            // all. NVIDIA reports it only through nvidia-smi, which is deferred
+            // — see requestGpuMemory() below for why.
             "m=$(cat $pd/device/mem_info_vram_total 2>/dev/null);" +
-            "if [ x$m != x ]; then m=$((m / 1048576)); else m=0;" +
-              "[ x$pv = xnvidia ] && command -v nvidia-smi >/dev/null 2>&1 && " +
-                "m=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits " +
-                    "-i 0000:$pa 2>/dev/null | head -1 | tr -dc 0-9);" +
-              "[ x$m = x ] && m=0;" +
-            "fi;" +
-            "printf '%s\\n%s\\n%s\\n' \"$n\" \"$m\" " +
-                "\"$(cat /sys/class/dmi/id/product_name 2>/dev/null)\""]
+            "if [ x$m != x ]; then m=$((m / 1048576)); else m=0; fi;" +
+            "printf '%s\\n%s\\n%s\\n%s\\n%s\\n' \"$n\" \"$m\" " +
+                "\"$(cat /sys/class/dmi/id/product_name 2>/dev/null)\" \"$pv\" \"$pa\""]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
@@ -359,6 +354,41 @@ Singleton {
                 if (/^(to be filled|system product|default string|none|n\/a)/i.test(model))
                     model = "";
                 root.machineModel = model;
+
+                root.gpuDriver = (l[3] || "").trim();
+                root.gpuAddress = (l[4] || "").trim();
+            }
+        }
+    }
+
+    // NVIDIA reports VRAM only through nvidia-smi, and calling that wakes a
+    // card that runtime power management has suspended: measured on an RTX 3050
+    // Mobile, one call held the card awake for 22 seconds at 11.5 W — about
+    // 70 mWh — against roughly nothing asleep. That is a poor price for a
+    // number shown on one row of one card, so it is asked for only when
+    // something is about to display it, and only once per shell.
+    property string gpuDriver: ""
+    property string gpuAddress: ""
+    property bool gpuMemoryRequested: false
+
+    function requestGpuMemory(): void {
+        if (root.gpuMemoryRequested || root.gpuMemoryMiB > 0) return;
+        if (root.gpuDriver !== "nvidia" || root.gpuAddress === "") return;
+        root.gpuMemoryRequested = true;
+        gpuMemoryProbe.running = true;
+    }
+
+    Process {
+        id: gpuMemoryProbe
+        command: ["sh", "-c",
+            "command -v nvidia-smi >/dev/null 2>&1 || exit 0;" +
+            "nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits " +
+                "-i 0000:" + root.gpuAddress + " 2>/dev/null | head -1 | tr -dc 0-9"]
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const m = parseInt(text.trim()) || 0;
+                if (m > 0) root.gpuMemoryMiB = m;
             }
         }
     }

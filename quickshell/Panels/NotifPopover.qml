@@ -22,7 +22,11 @@ BrixPopup {
     contentWidth: 380
     contentHeight: 440
 
-    onPanelOpened: Notifs.markAllRead()
+    onPanelOpened: {
+        Notifs.markAllRead();
+        Notifs.subscribe();
+    }
+    onPanelClosed: Notifs.unsubscribe()
 
     BrixCard {
         anchors.fill: parent

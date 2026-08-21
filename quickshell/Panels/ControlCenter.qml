@@ -34,12 +34,15 @@ BrixPopup {
         SysInfo.subscribe();
         Media.subscribePosition();
         Rec.subscribe();
+        Notifs.subscribe();
         SysInfo.refreshPackages();
+        SysInfo.requestGpuMemory();
     }
     onPanelClosed: {
         SysInfo.unsubscribe();
         Media.unsubscribePosition();
         Rec.unsubscribe();
+        Notifs.unsubscribe();
     }
 
     BrixCard {

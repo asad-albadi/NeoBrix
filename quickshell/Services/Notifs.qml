@@ -140,12 +140,21 @@ Singleton {
         }
     }
 
-    // Keeps relative timestamps ("3m") fresh in the notification centre.
+    // Keeps relative timestamps ("3m") fresh in the notification centre, and
+    // only while something is on screen to show them. Ungated this woke the
+    // shell every 30 seconds for as long as a single notification sat in
+    // history -- which is to say permanently, once anything had ever arrived --
+    // to re-render text nobody was looking at. Same subscribe/unsubscribe
+    // shape as SysInfo and Rec.
+    property int viewers: 0
+    function subscribe() { viewers++; ageTick++; }   // bump: refresh on reopen
+    function unsubscribe() { viewers = Math.max(0, viewers - 1); }
+
     property int ageTick: 0
     Timer {
         interval: 30000
         repeat: true
-        running: root.history.length > 0
+        running: root.viewers > 0 && root.history.length > 0
         onTriggered: root.ageTick++
     }
 }
