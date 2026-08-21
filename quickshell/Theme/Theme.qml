@@ -123,12 +123,30 @@ Singleton {
     readonly property color onAccent:      p.onAccent
     readonly property color scrim:         Qt.rgba(0, 0, 0, p.scrimOpacity)
 
+    function luminance(c) {
+        return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    }
+
+    function contrast(a, b) {
+        const la = luminance(a), lb = luminance(b);
+        return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    }
+
     // Picks readable text/glyph colour for an arbitrary accent. Needed because the
     // neutral "accents" (surfaceDeep) invert between the two palettes: a fixed dark
     // onAccent disappears on a dark badge in dusk.
+    //
+    // Whichever of the two inks contrasts more, rather than a luminance cutoff.
+    // A cutoff has to sit somewhere and Theme.error sits right beside where this
+    // one was: at 0.52 luminance in dusk it fell on the light side of 0.55 and
+    // took the light ink, which is light text on a light red — 1.73 contrast
+    // where the dark ink gives 4.59. Asking which one actually reads has no
+    // threshold to be on the wrong side of.
+    //
+    // dusk error is the only surface in either palette whose answer changes;
+    // every other one picks the ink it always did.
     function textOn(c) {
-        const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-        return lum > 0.55 ? onAccent : foreground;
+        return contrast(c, onAccent) >= contrast(c, foreground) ? onAccent : foreground;
     }
 
     // Accent rotation used for tiles/badges that want variety without randomness.
