@@ -163,86 +163,66 @@ Item {
         anchors.fill: parent
         spacing: Theme.spaceMd
 
-        // ── active link ─────────────────────────────────────────────────────
-        BrixCard {
-            visible: root.show !== "bluetooth"
+        // ── one card per link ───────────────────────────────────────────────
+        // Wired and wireless each describe themselves and each carry their own
+        // switch, so "which one am I on" is answerable at a glance when both are
+        // up, and either can be turned off from where its state is shown. Side
+        // by side where there is width, stacked in a popover. A link with no
+        // adapter takes no cell at all.
+        GridLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: 66
-            radius: Theme.radiusMd
-            color: Theme.surface
-            shadowOffset: Theme.shadowSm
+            columns: root.show === "all" ? 2 : 1
+            rowSpacing: Theme.spaceMd
+            columnSpacing: Theme.spaceMd
 
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.spaceSm
-                spacing: Theme.spaceSm
+            LinkCard {
+                visible: root.show !== "bluetooth" && Net.hasWired
+                glyph: "󰈀"
+                live: Net.wiredConnected
+                isPrimary: Net.primaryIsWired
+                switchOn: Net.wiredEnabled
+                onSwitched: on => Net.setWiredEnabled(on)
+                chipText: Net.online ? "FULL" : "LIMITED"
+                chipAccent: Net.online ? Theme.secondary : Theme.warning
 
-                BrixCard {
-                    Layout.preferredWidth: 44
-                    Layout.preferredHeight: 44
-                    radius: Theme.radiusSm
-                    shadowOffset: Theme.shadowSm
-                    color: Net.connected ? Theme.secondary : Theme.error
+                title: !Net.wiredEnabled ? "Ethernet off"
+                     : !Net.wiredHasLink ? "Unplugged"
+                     : !Net.wiredConnected ? "No address"
+                     : "Wired"
+                detail: Net.hasWired
+                        ? Net.wired.name + (Net.wiredIpv4 !== "—" ? "  ·  " + Net.wiredIpv4 : "")
+                        : ""
+                extra: Net.wiredSpeed > 0 ? "LINK  ·  " + Net.wiredSpeed + " Mb/s" : ""
+            }
 
-                    Text {
-                        anchors.centerIn: parent
-                        text: Net.icon
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontXl
-                        color: Theme.textOn(parent.color)
-                    }
-                }
+            LinkCard {
+                visible: root.show !== "bluetooth" && Net.hasWifi
+                glyph: Net.wifiEnabled ? Net.glyphFor(Net.wifiSignal) : "󰤭"
+                live: Net.wifiConnected
+                isPrimary: Net.connected && !Net.primaryIsWired
+                switchOn: Net.wifiEnabled
+                onSwitched: on => Net.setWifiEnabled(on)
+                chipText: Net.online ? "FULL" : "LIMITED"
+                chipAccent: Net.online ? Theme.secondary : Theme.warning
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: Net.connectionName
-                        elide: Text.ElideRight
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontLg
-                        font.weight: Theme.weightHeavy
-                        color: Theme.foreground
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: Net.typeLabel + " · " + Net.interfaceName
-                              + (Net.ipv4 !== "—" ? " · " + Net.ipv4 : "")
-                        elide: Text.ElideRight
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontXs
-                        font.weight: Theme.weightBold
-                        color: Theme.foregroundDim
-                    }
-                    // Deliberately not the MAC address: it identifies the
-                    // machine and these panels end up in screenshots.
-                    Text {
-                        Layout.fillWidth: true
-                        visible: text !== ""
-                        text: {
-                            if (root.activeNetwork)
-                                return WifiSecurityType.toString(root.activeNetwork.security)
-                                     + " · " + Net.percentFor(Net.signalStrength) + "% signal";
-                            if (Net.hasWired && Net.wired.hasLink && Net.wired.linkSpeed > 0)
-                                return "LINK " + Net.wired.linkSpeed + " Mb/s";
-                            return "";
-                        }
-                        elide: Text.ElideRight
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 8
-                        color: Theme.foregroundDim
-                    }
-                }
-
-                BrixChip {
-                    text: Net.online ? "FULL" : (Net.connected ? "LIMITED" : "DOWN")
-                    accent: Net.online ? Theme.secondary
-                          : Net.connected ? Theme.warning : Theme.error
+                title: !Net.wifiEnabled ? "Wi-Fi off"
+                     : Net.wifiConnected ? Net.wifiNetworkName
+                     : "Not connected"
+                detail: Net.hasWifi
+                        ? Net.wifi.name + (Net.wifiIpv4 !== "—" ? "  ·  " + Net.wifiIpv4 : "")
+                        : ""
+                // Deliberately not the MAC address: it identifies the machine
+                // and these panels end up in screenshots.
+                extra: {
+                    if (!Net.wifiConnected) return "";
+                    const sec = Net.wifiNetwork
+                              ? WifiSecurityType.toString(Net.wifiNetwork.security) + "  ·  " : "";
+                    const rate = Net.wifiSpeed > 0 ? "  ·  " + Net.wifiSpeed + " Mb/s" : "";
+                    return sec + Net.percentFor(Net.wifiSignal) + "% signal" + rate;
                 }
             }
         }
+
 
         // ── the two radios, side by side ────────────────────────────────────
         RowLayout {
@@ -269,19 +249,20 @@ Item {
                         spacing: Theme.spaceSm
 
                         SectionHeader { text: "WI-FI"; icon: "󰤨"; Layout.fillWidth: true }
-
-                        BrixToggle {
-                            checked: Net.wifiEnabled
-                            onToggled: on => Net.setWifiEnabled(on)
-                        }
                     }
 
                     Text {
                         Layout.fillWidth: true
-                        text: !Net.wifiEnabled ? "Radio off"
-                            : Net.visibleNetworks.length === 0 ? "Scanning…"
-                            : Net.visibleNetworks.length + " network"
-                              + (Net.visibleNetworks.length === 1 ? "" : "s") + " in range"
+                        text: {
+                            if (!Net.wifiEnabled) return "Radio off";
+                            if (Net.visibleNetworks.length === 0) return "Scanning…";
+                            // No rate here: the card above owns describing the
+                            // link, and printing it twice on one screen just
+                            // gives two numbers to disagree with each other.
+                            return Net.visibleNetworks.length
+                                 + " network" + (Net.visibleNetworks.length === 1 ? "" : "s")
+                                 + " in range";
+                        }
                         elide: Text.ElideRight
                         font.family: Theme.fontFamily
                         font.pixelSize: 8

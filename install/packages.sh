@@ -54,6 +54,8 @@ UTILS=(
                             # GPU, so a 1080p capture costs almost nothing
     grim slurp satty
     brightnessctl
+    iw                      # wifi bitrate in the connectivity panel; the figure
+                            # is omitted rather than wrong when it is missing
     libnotify
     imagemagick librsvg     # wallpaper generation
     python                  # screenshot geometry helpers, and the refresh-rate
