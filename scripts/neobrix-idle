@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Idle actions for hypridle. One place for the policy, so the timings in
+#  hypridle.conf stay readable and each step can be tested on its own.
+#
+#      neobrix-idle dark       screen off: DPMS *and* backlight
+#      neobrix-idle light      screen back on
+#      neobrix-idle suspend    suspend, but only when running on battery
+#
+#  Set NEOBRIX_DRY_RUN=1 to print what would happen instead of doing it.
+#
+#  Why `dark` turns the backlight off as well: Hyprland's `dpms off` disables
+#  the CRTC, but the backlight is a separate device it does not touch, so the
+#  panel goes black while still lit. Measured on an i5-11300H at 1920x1080,
+#  `dpms off` on its own produced no reduction in battery draw at all and left
+#  /sys/class/backlight/*/brightness at maximum. The backlight is most of what
+#  a dark screen is supposed to save, so it has to be switched off explicitly.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+run() {
+    if [[ -n ${NEOBRIX_DRY_RUN:-} ]]; then printf 'would run: %s\n' "$*"; return 0; fi
+    "$@"
+}
+
+# `hyprctl dispatch dpms off` cannot be used: Neobrix runs a Lua config, and
+# there the dispatch argument is evaluated as Lua, so `dpms off` is a syntax
+# error and the command does nothing at all. That is why the idle blank had
+# never worked. hl.dsp.dpms takes the state as a *string* -- passing a table
+# turns the display off whatever state it names.
+dpms() {
+    if [[ -n ${NEOBRIX_DRY_RUN:-} ]]; then printf 'would run: dpms %s\n' "$1"; return 0; fi
+    hyprctl eval "hl.dispatch(hl.dsp.dpms(\"$1\"))"
+}
+
+HERE="$(dirname "$(readlink -f "$0")")"
+# shellcheck source=lib/power.sh
+source "$HERE/lib/power.sh"
+
+case ${1:-} in
+    dark)
+        # Backlight first, and a DPMS failure is not fatal: the backlight is
+        # what actually saves the power, so it must not be skipped because the
+        # compositor refused the blank.
+        #
+        # No -s: the dim listener already saved the user's real brightness on
+        # its way down, and saving again here would store the dimmed value and
+        # restore to that instead.
+        command -v brightnessctl >/dev/null 2>&1 && run brightnessctl -q set 0
+        run dpms off || true
+        ;;
+    light)
+        run dpms on || true
+        if command -v brightnessctl >/dev/null 2>&1; then
+            # -r restores what the dim step saved on the way down, which is the
+            # brightness the user actually chose. If there is nothing saved --
+            # the dim listener never ran, or its state was lost -- restoring
+            # leaves the backlight at the 0 `dark` set, i.e. a screen that stays
+            # black after a keypress. Anything visible beats that.
+            run brightnessctl -q -r || true
+            if [[ -z ${NEOBRIX_DRY_RUN:-} && $(brightnessctl get) -eq 0 ]]; then
+                brightnessctl -q set 50%
+            fi
+        fi
+        ;;
+    suspend)
+        if neobrix_on_battery; then
+            run systemctl suspend
+        else
+            printf 'on mains, not suspending\n'
+        fi
+        ;;
+    on-battery)
+        # Exposed so the guard above can be checked without suspending anything.
+        neobrix_on_battery && { echo yes; exit 0; } || { echo no; exit 1; }
+        ;;
+    *)
+        sed -n '2,13p' "$(readlink -f "$0")" | sed 's/^# \?//'
+        exit 1
+        ;;
+esac
