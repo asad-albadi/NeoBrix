@@ -230,7 +230,13 @@ EOF
 }
 
 /* Tabs read as blocks: a real border on the active one, none on the rest. */
+/* The selected tab was given an outline but no fill, so it kept Zen's own tint
+ * (#3b3631 against a #191310 sidebar on the dusk palette) — the one piece of
+ * sidebar chrome that was not a Neobrix colour. Filling it with the surface
+ * shade makes the active tab read as a card sitting on the darker sidebar, the
+ * same relationship the shell's cards have with the bar. */
 .tab-background[selected] {
+  background-color: var(--neobrix-surface) !important;
   border: 2px solid var(--neobrix-outline) !important;
   border-radius: 7px !important;
 }
