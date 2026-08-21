@@ -16,6 +16,27 @@ Item {
 
     signal dismissed()
 
+    // Actions worth a button: ones with something to write on them, and not the
+    // default. Per the freedesktop spec "default" is what activating the
+    // notification itself means, so it belongs on the body rather than beside
+    // the others — and senders routinely give it no label at all, kitty among
+    // them, which is how an empty button came to be sitting in its
+    // notifications with nothing in it and nothing to explain it.
+    readonly property var buttonActions: {
+        const out = [];
+        if (!root.notif) return out;
+        for (const a of root.notif.actions)
+            if (a.text !== "" && a.identifier !== "default") out.push(a);
+        return out;
+    }
+
+    readonly property var defaultAction: {
+        if (!root.notif) return null;
+        for (const a of root.notif.actions)
+            if (a.identifier === "default") return a;
+        return null;
+    }
+
     readonly property var notif: wrapper ? wrapper.notification : null
     readonly property string urgency: wrapper ? wrapper.urgency : "normal"
 
@@ -198,11 +219,11 @@ Item {
             // ── actions ─────────────────────────────────────────────────────
             RowLayout {
                 Layout.fillWidth: true
-                visible: root.notif && root.notif.actions.length > 0
+                visible: root.buttonActions.length > 0
                 spacing: Theme.spaceSm
 
                 Repeater {
-                    model: root.notif ? root.notif.actions : []
+                    model: root.buttonActions
 
                     delegate: BrixButton {
                         required property var modelData
@@ -222,9 +243,22 @@ Item {
     }
 
     // Middle-click anywhere dismisses; useful for toasts.
+    // Clicking the notification activates it, which is what the default action
+    // is for — the terminal that sent it comes forward, rather than the
+    // notification quietly disappearing and the action being unreachable.
+    //
+    // Unverified: this handler could not be observed firing at all, on a toast
+    // or in the centre, so notification surfaces appear not to be taking clicks.
+    // That is not new — the previous handler here was a bare dismissed() and
+    // would have been just as unreachable — and it is the correct thing to run
+    // when a click does arrive, so it stays while the input path is looked at
+    // separately.
     MouseArea {
         anchors.fill: card
         acceptedButtons: Qt.MiddleButton
-        onClicked: root.dismissed()
+        onClicked: {
+            if (root.defaultAction) root.defaultAction.invoke();
+            root.dismissed();
+        }
     }
 }
