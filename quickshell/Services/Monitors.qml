@@ -249,6 +249,16 @@ Singleton {
         return false;
     }
 
+    // Moving one screen, with the layout normalised afterwards so the top-left
+    // corner stays at 0,0. Dropping a screen to the left of the leftmost one
+    // needs a negative coordinate, and clamping that to zero -- which is what
+    // this used to do -- turned "put it on the left" into "overlap the one that
+    // is already there".
+    function place(output, x, y) {
+        root.runChange(["neobrix-monitors", "--revert-after", String(root.revertWindow),
+                        "place", output, x + "x" + y]);
+    }
+
     function arrange() {
         root.runChange(["neobrix-monitors", "--revert-after", String(root.revertWindow),
                         "arrange"]);

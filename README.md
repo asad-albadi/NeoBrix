@@ -520,11 +520,20 @@ so and offers to pack the screens edge to edge (`neobrix-monitors arrange`). Thi
 matters more than it looks: a gap is dead space, and **the pointer cannot cross
 dead space**, so screens that look adjacent refuse to hand the cursor over.
 
-**Drag to arrange.** Screens are drawn to scale in their real layout positions,
-and dragging one snaps its edges to its neighbours, so screens end up touching
-rather than a few pixels apart with dead space between them. Positions are always
-written explicitly — Hyprland's `auto` would re-place every output and rearrange
-a desk you had already arranged.
+**Drag to arrange.** Screens are drawn to scale in their real layout positions.
+Dragging one shows faded guides at every place it can land — flush either side of
+a neighbour, edges level, centres aligned, or squared up with the corner of the
+layout — and the guide brightens as it comes into range. The nearest lands.
+**Hold Ctrl to ignore them** and put a screen exactly where you dropped it.
+
+Snapping is measured on screen, not in desktop pixels: twelve pixels under the
+pointer, whatever is plugged in. A fixed threshold in desktop pixels is a third
+of a screen on a wide layout and nothing at all on a narrow one.
+
+A screen dropped to the left of the leftmost one is a negative coordinate, which
+is accepted and then normalised — the whole layout shifts so its corner sits at
+0,0 again. Positions are always written explicitly; Hyprland's `auto` would
+re-place every output and rearrange a desk you had already arranged.
 
 **Nothing sticks until you say so.** A mode a monitor cannot display leaves a
 black screen, and a black screen cannot be clicked out of, so every change starts

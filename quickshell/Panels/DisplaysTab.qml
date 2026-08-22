@@ -156,8 +156,9 @@ Item {
                                 Layout.fillWidth: true
                                 text: Monitors.hasGap
                                       ? "A screen is not touching the others — the pointer cannot cross the gap."
-                                      : Monitors.count > 1 ? "Drag a screen to move it. Edges snap."
-                                                           : "Nothing to arrange with one screen."
+                                      : Monitors.count > 1
+                                        ? "Drag to move. Edges and centres snap — hold Ctrl to place freely."
+                                        : "Nothing to arrange with one screen."
                                 wrapMode: Text.WordWrap
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 8
@@ -208,10 +209,100 @@ Item {
                             readonly property real factor: Math.min(
                                 (width - pad * 2) / spanX, (height - pad * 2) / spanY)
 
+                            // Snap tolerance is measured on the canvas, not in
+                            // logical pixels: a fixed logical threshold is a
+                            // third of a screen on a wide layout and nothing at
+                            // all on a narrow one. 12px under the pointer feels
+                            // the same whatever is plugged in.
+                            readonly property real tol: 12 / canvas.factor
+
+                            // Live drag state, so the guides know what is moving
+                            // and where it currently is.
+                            property string dragName: ""
+                            property real dragW: 0
+                            property real dragH: 0
+                            property real dragLX: 0
+                            property real dragLY: 0
+
+                            // Every position worth landing on, defined once and
+                            // used both to draw the guides and to decide the
+                            // drop -- so what is shown cannot drift from what
+                            // happens. These are positions for the dragged
+                            // screen's own edge, which is what the guide marks.
+                            function candidates(name, size, axis) {
+                                const out = [0];   // square up with the layout corner
+                                for (const o of Monitors.list) {
+                                    if (o.name === name) continue;
+                                    const p = axis === "x" ? o.x : o.y;
+                                    const s = axis === "x" ? o.logicalWidth : o.logicalHeight;
+                                    out.push(p + s,                 // just past it
+                                             p - size,              // just before it
+                                             p,                     // near edges level
+                                             p + s - size,          // far edges level
+                                             p + (s - size) / 2);   // centred on it
+                                }
+                                // Duplicates are common once three screens are
+                                // involved, and each one would draw another line
+                                // on top of the last.
+                                const seen = {};
+                                const uniq = [];
+                                for (const c of out) {
+                                    const k = Math.round(c);
+                                    if (seen[k]) continue;
+                                    seen[k] = true;
+                                    uniq.push(k);
+                                }
+                                return uniq;
+                            }
+
+                            // Nearest wins. Taking the first within tolerance
+                            // meant whichever screen came first in the list
+                            // decided, which is what made this feel arbitrary.
+                            function snapTo(value, cands) {
+                                let best = value, bestD = canvas.tol;
+                                for (const c of cands) {
+                                    const d = Math.abs(c - value);
+                                    if (d < bestD) { best = c; bestD = d; }
+                                }
+                                return Math.round(best);
+                            }
+
                             function toCanvasX(lx) { return pad + (lx - canvas.minX) * canvas.factor; }
                             function toCanvasY(ly) { return pad + (ly - canvas.minY) * canvas.factor; }
                             function toLogicalX(cx) { return (cx - pad) / canvas.factor + canvas.minX; }
                             function toLogicalY(cy) { return (cy - pad) / canvas.factor + canvas.minY; }
+
+                            // Faded lines at every snap point while dragging,
+                            // brightening as one comes into range, so the
+                            // available landings are visible rather than felt
+                            // out by trial and error.
+                            Repeater {
+                                model: canvas.dragName !== ""
+                                       ? canvas.candidates(canvas.dragName, canvas.dragW, "x") : []
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    x: canvas.toCanvasX(modelData)
+                                    y: 0
+                                    width: 1
+                                    height: canvas.height
+                                    color: Theme.primary
+                                    opacity: Math.abs(modelData - canvas.dragLX) < canvas.tol ? 0.7 : 0.16
+                                }
+                            }
+
+                            Repeater {
+                                model: canvas.dragName !== ""
+                                       ? canvas.candidates(canvas.dragName, canvas.dragH, "y") : []
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    x: 0
+                                    y: canvas.toCanvasY(modelData)
+                                    width: canvas.width
+                                    height: 1
+                                    color: Theme.primary
+                                    opacity: Math.abs(modelData - canvas.dragLY) < canvas.tol ? 0.7 : 0.16
+                                }
+                            }
 
                             Repeater {
                                 model: Monitors.list
@@ -306,6 +397,11 @@ Item {
                                             ma.grabX = p.x - tile.x;
                                             ma.grabY = p.y - tile.y;
                                             ma.dragging = true;
+                                            canvas.dragW = tile.modelData.logicalWidth;
+                                            canvas.dragH = tile.modelData.logicalHeight;
+                                            canvas.dragLX = tile.modelData.x;
+                                            canvas.dragLY = tile.modelData.y;
+                                            canvas.dragName = tile.modelData.name;
                                         }
 
                                         onPositionChanged: mouse => {
@@ -313,44 +409,44 @@ Item {
                                             const p = ma.mapToItem(canvas, mouse.x, mouse.y);
                                             tile.x = p.x - ma.grabX;
                                             tile.y = p.y - ma.grabY;
+                                            canvas.dragLX = canvas.toLogicalX(tile.x);
+                                            canvas.dragLY = canvas.toLogicalY(tile.y);
                                         }
 
-                                        onReleased: {
+                                        onCanceled: {
+                                            ma.dragging = false;
+                                            canvas.dragName = "";
+                                            ma.rebind();
+                                        }
+
+                                        onReleased: mouse => {
                                             if (!ma.dragging) return;
                                             ma.dragging = false;
+                                            canvas.dragName = "";
 
-                                            let lx = Math.round(canvas.toLogicalX(tile.x));
-                                            let ly = Math.round(canvas.toLogicalY(tile.y));
-
-                                            // Snap to a neighbour's edge, so
-                                            // screens end up touching rather
-                                            // than a few pixels apart -- a gap
-                                            // in the layout is dead space the
-                                            // pointer has to cross.
-                                            const snap = Math.max(40, 60 / canvas.factor);
+                                            const lx0 = canvas.toLogicalX(tile.x);
+                                            const ly0 = canvas.toLogicalY(tile.y);
                                             const w = tile.modelData.logicalWidth;
                                             const h = tile.modelData.logicalHeight;
-                                            for (const o of Monitors.list) {
-                                                if (o.name === tile.modelData.name) continue;
-                                                for (const c of [o.x + o.logicalWidth, o.x - w, o.x])
-                                                    if (Math.abs(c - lx) < snap) { lx = c; break; }
-                                                for (const c of [o.y + o.logicalHeight, o.y - h, o.y])
-                                                    if (Math.abs(c - ly) < snap) { ly = c; break; }
-                                            }
 
-                                            // Hyprland lays out from the origin;
-                                            // a negative position is legal but
-                                            // dragging something off the top-left
-                                            // is nearly always a slip.
-                                            lx = Math.max(0, lx);
-                                            ly = Math.max(0, ly);
+                                            // Ctrl means "leave it exactly where I
+                                            // put it". Snapping is a convenience,
+                                            // not a rule.
+                                            const free = (mouse.modifiers & Qt.ControlModifier) !== 0;
+                                            const lx = free ? Math.round(lx0)
+                                                : canvas.snapTo(lx0, canvas.candidates(tile.modelData.name, w, "x"));
+                                            const ly = free ? Math.round(ly0)
+                                                : canvas.snapTo(ly0, canvas.candidates(tile.modelData.name, h, "y"));
 
                                             ma.rebind();
                                             if (lx === tile.modelData.x && ly === tile.modelData.y)
                                                 return;
 
-                                            Monitors.set(tile.modelData.name,
-                                                         { position: lx + "x" + ly });
+                                            // place() rather than set(): a drop on
+                                            // the left is a negative coordinate, and
+                                            // the layout is shifted back to the
+                                            // origin afterwards.
+                                            Monitors.place(tile.modelData.name, lx, ly);
                                         }
                                     }
                                 }

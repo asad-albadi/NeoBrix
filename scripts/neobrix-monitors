@@ -15,6 +15,7 @@
 #      neobrix-monitors confirm                 keep a pending change
 #      neobrix-monitors revert                  undo a pending change
 #      neobrix-monitors generate                write the Lua applied at startup
+#      neobrix-monitors place OUTPUT XxY        move one screen, keeping 0,0 at top-left
 #      neobrix-monitors arrange                 pack the screens edge to edge
 #      neobrix-monitors cap <hz>                cap the internal panel's refresh
 #      neobrix-monitors uncap                   put the internal panel back
@@ -442,6 +443,73 @@ PY
     printf 'packed %s screen(s) edge to edge\n' "$(printf '%s' "$packed" | grep -c '"mode"')"
 }
 
+# ── placing ──────────────────────────────────────────────────────────────────
+#
+# `set OUTPUT position=...` moves one screen and touches nothing else, which is
+# right for a scripted change and wrong for dragging: putting a screen to the
+# left of the leftmost one needs a negative coordinate, and while Hyprland
+# accepts those, a layout that drifts into negative space is confusing to reason
+# about and to save.
+#
+# So `place` moves one screen wherever it was dropped -- negatives included --
+# and then shifts the whole layout back so the top-left corner sits at 0,0. The
+# arrangement is identical, the numbers stay sane, and the person dragging never
+# has to think about it.
+cmd_place() {
+    local output="${1:?an output name}" pos="${2:?a position like 1920x0}"
+    local moved
+    moved="$(NB_CUR="$(current_state)" NB_MONS="$(raw)" NB_OUT="$output" NB_POS="$pos" py <<'PY'
+import json, os, sys
+
+cur = json.loads(os.environ["NB_CUR"])
+mons = {m["name"]: m for m in json.loads(os.environ["NB_MONS"])}
+name, pos = os.environ["NB_OUT"], os.environ["NB_POS"]
+
+if name not in cur:
+    sys.stderr.write("neobrix-monitors: no output named %r\n" % name)
+    raise SystemExit(1)
+if cur[name].get("disabled"):
+    # A screen that is off occupies no space, so there is nowhere to put it.
+    # Switching one back on is `set disabled=false`, which must keep working
+    # -- this guard once sat in cmd_set and made a dark screen unrecoverable.
+    sys.stderr.write("neobrix-monitors: %s is switched off; turn it on first\n" % name)
+    raise SystemExit(1)
+try:
+    px, py_ = (int(v) for v in pos.lower().split("x"))
+except ValueError:
+    sys.stderr.write("neobrix-monitors: expected a position like 1920x0, got %r\n" % pos)
+    raise SystemExit(1)
+
+cur[name]["position"] = "{}x{}".format(px, py_)
+
+def footprint(n):
+    m = mons.get(n) or {}
+    scale = m.get("scale") or 1
+    w, h = m.get("width", 0), m.get("height", 0)
+    if (m.get("transform") or 0) % 2 == 1:
+        w, h = h, w
+    return round(w / scale), round(h / scale)
+
+live = {n: o for n, o in cur.items() if not o.get("disabled")}
+if live:
+    xs, ys = [], []
+    for n, o in live.items():
+        x, y = (int(v) for v in o["position"].split("x"))
+        xs.append(x); ys.append(y)
+    dx, dy = min(xs), min(ys)
+    if dx or dy:
+        for n, o in live.items():
+            x, y = (int(v) for v in o["position"].split("x"))
+            o["position"] = "{}x{}".format(x - dx, y - dy)
+
+print(json.dumps(cur, indent=2, sort_keys=True))
+PY
+)" || exit 1
+
+    begin_pending
+    apply_json "$moved"
+}
+
 # ── refresh cap ──────────────────────────────────────────────────────────────
 #
 # The battery policy wants the internal panel slower, and the saved profile
@@ -598,6 +666,7 @@ case "${1:-list}" in
     confirm)     cmd_confirm ;;
     revert)      cmd_revert ;;
     generate)    cmd_generate ;;
+    place)       shift; cmd_place "${1:-}" "${2:-}" ;;
     arrange)     cmd_arrange ;;
     cap)         shift; cmd_cap "${1:-}" ;;
     uncap)       cmd_uncap ;;

@@ -597,6 +597,47 @@ STUB
     # The rotation itself must survive being re-applied.
     assert_has "arrange preserves the transform" "transform=1" "$evals"
 
+    # Dropping a screen to the left of the leftmost one is a negative
+    # coordinate. It has to be accepted -- clamping it to zero turns "put it on
+    # the left" into "overlap what is already there" -- and then the whole layout
+    # is shifted back so the corner sits at 0,0.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" place DP-1 -1440x0 >/dev/null 2>&1
+    evals="$(cat "$NB_EVAL_LOG")"
+    assert_lacks "place leaves nothing at a negative coordinate" 'position="-' "$evals"
+    assert_has "place puts the moved screen at the origin" 'output="DP-1", mode="2560x1440@144", position="0x0"' "$evals"
+    # eDP-1 was at 0 and everything shifted right by the 1440 the rotated panel
+    # occupies, so it lands at 1440 rather than staying put.
+    assert_has "place shifts the others to keep the corner at 0,0" 'output="eDP-1", mode="1920x1080@60", position="1440x0"' "$evals"
+
+    unset NB_EVAL_LOG
+}
+
+test_monitors_place_guard() {
+    case_ "a screen that is off cannot be placed, but can be switched on"
+
+    local dir="$TMP/mon"          # reuses the stub from test_monitors
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+    export NB_EVAL_LOG="$dir/eval.log"
+
+    # The stub reports everything enabled, so disable one through the tool and
+    # then try to move it.
+    : > "$NB_EVAL_LOG"
+    local out ec
+    out="$("${run[@]}" place NOPE 0x0 2>&1)"; ec=$?
+    assert_has "place rejects an unknown output" "no output named" "$out"
+    [[ $ec -ne 0 ]] && ok "place fails loudly on an unknown output" \
+                    || bad "place fails loudly on an unknown output"
+
+    # And the guard that matters: it must live in place, not in set. `set
+    # disabled=false` is the only way back from a dark screen, and a guard in the
+    # wrong function once made that unrecoverable.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" set eDP-1 disabled=false >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "set can still switch a screen on" 'disabled=false' "$evals"
+
     unset NB_EVAL_LOG
 }
 
@@ -609,6 +650,7 @@ if (( DO_LOCAL )); then
     test_confirmation
     test_monitors
     test_monitors_rotation
+    test_monitors_place_guard
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"
