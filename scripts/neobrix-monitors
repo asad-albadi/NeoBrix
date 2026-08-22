@@ -15,6 +15,7 @@
 #      neobrix-monitors confirm                 keep a pending change
 #      neobrix-monitors revert                  undo a pending change
 #      neobrix-monitors generate                write the Lua applied at startup
+#      neobrix-monitors arrange                 pack the screens edge to edge
 #      neobrix-monitors cap <hz>                cap the internal panel's refresh
 #      neobrix-monitors uncap                   put the internal panel back
 #
@@ -391,6 +392,56 @@ PY
     apply_json "$outputs"
 }
 
+# ── arranging ────────────────────────────────────────────────────────────────
+#
+# Rotating a screen changes how much room it takes: a 2560x1440 panel turned on
+# its side is 1440 wide, not 2560. Hyprland keeps reporting the mode unrotated,
+# so a layout built before the rotation leaves a gap exactly as wide as the
+# difference -- and a gap is dead space the pointer cannot cross, which reads as
+# "the screens are next to each other but the cursor will not go there".
+#
+# `arrange` closes that: it packs the enabled outputs left to right in the order
+# they are already in, using each one's real footprint, and leaves the vertical
+# positions alone.
+cmd_arrange() {
+    local packed
+    packed="$(NB_MONS="$(raw)" py <<'PY'
+import json, os
+
+mons = [m for m in json.loads(os.environ["NB_MONS"]) if not m.get("disabled")]
+
+def footprint(m):
+    """Logical size, which is the mode turned on its side for a quarter turn."""
+    scale = m.get("scale") or 1
+    w, h = m["width"], m["height"]
+    if (m.get("transform") or 0) % 2 == 1:
+        w, h = h, w
+    return round(w / scale), round(h / scale)
+
+mons.sort(key=lambda m: (m["x"], m["y"]))
+out, x = {}, None
+for m in mons:
+    w, h = footprint(m)
+    if x is None:
+        x = m["x"]          # the leftmost screen stays where it is
+    out[m["name"]] = {
+        "mode": "{}x{}@{:g}".format(m["width"], m["height"], round(m["refreshRate"], 2)),
+        "position": "{}x{}".format(x, m["y"]),
+        "scale": round(m.get("scale") or 1, 6),
+        "transform": m.get("transform") or 0,
+        "vrr": 1 if m.get("vrr") else 0,
+        "disabled": False,
+        "mirror": m.get("mirrorOf") or "none",
+    }
+    x += w
+print(json.dumps(out, indent=2, sort_keys=True))
+PY
+)"
+    begin_pending
+    apply_json "$packed"
+    printf 'packed %s screen(s) edge to edge\n' "$(printf '%s' "$packed" | grep -c '"mode"')"
+}
+
 # ── refresh cap ──────────────────────────────────────────────────────────────
 #
 # The battery policy wants the internal panel slower, and the saved profile
@@ -547,6 +598,7 @@ case "${1:-list}" in
     confirm)     cmd_confirm ;;
     revert)      cmd_revert ;;
     generate)    cmd_generate ;;
+    arrange)     cmd_arrange ;;
     cap)         shift; cmd_cap "${1:-}" ;;
     uncap)       cmd_uncap ;;
     -h|--help|help) sed -n '2,40p' "$(readlink -f "$0")" | sed 's/^# \?//' ;;

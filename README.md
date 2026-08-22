@@ -512,6 +512,14 @@ neobrix-monitors save "Desk"                 # remember this set of screens
 neobrix-monitors apply "Desk"                # put it back
 ```
 
+**Rotation changes the footprint.** A 2560x1440 panel turned on its side is 1440
+wide and 2560 tall, but Hyprland keeps reporting the mode unrotated. The tab draws
+the real footprint, so a rotated screen is drawn portrait and labelled with its
+angle — and if a layout built before the rotation now leaves a gap, the tab says
+so and offers to pack the screens edge to edge (`neobrix-monitors arrange`). This
+matters more than it looks: a gap is dead space, and **the pointer cannot cross
+dead space**, so screens that look adjacent refuse to hand the cursor over.
+
 **Drag to arrange.** Screens are drawn to scale in their real layout positions,
 and dragging one snaps its edges to its neighbours, so screens end up touching
 rather than a few pixels apart with dead space between them. Positions are always

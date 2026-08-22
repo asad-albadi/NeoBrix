@@ -33,6 +33,17 @@ Singleton {
         for (const m of root.devices) {
             const ipc = m.lastIpcObject || {};
             const scale = m.scale || ipc.scale || 1;
+            const transform = ipc.transform || 0;
+            const modeW = m.width || ipc.width || 0;
+            const modeH = m.height || ipc.height || 0;
+            // A rotated screen occupies its mode turned on its side, but Hyprland
+            // reports the mode unrotated -- a 2560x1440 panel at transform 1 is
+            // 1440 wide and 2560 tall in the layout. Transforms 1, 3, 5 and 7 are
+            // the quarter turns; 4 and 6 are flips, which do not swap anything.
+            // Getting this wrong drew the tile in landscape and, worse, made
+            // every snap and span 1120px out, so screens that looked adjacent had
+            // dead space between them and the pointer could not cross.
+            const turned = transform % 2 === 1;
             out.push({
                 name: m.name,
                 description: m.description || ipc.description || m.name,
@@ -44,8 +55,8 @@ Singleton {
                 // What the layout actually occupies, which is the mode divided
                 // by the scale -- a 3840-wide panel at 2x is 1920 wide as far as
                 // positions are concerned.
-                logicalWidth: Math.round((m.width || ipc.width || 0) / scale),
-                logicalHeight: Math.round((m.height || ipc.height || 0) / scale),
+                logicalWidth: Math.round((turned ? modeH : modeW) / scale),
+                logicalHeight: Math.round((turned ? modeW : modeH) / scale),
                 refreshRate: ipc.refreshRate || 0,
                 modes: ipc.availableModes || [],
                 transform: ipc.transform || 0,
@@ -86,6 +97,7 @@ Singleton {
                     for (const m of JSON.parse(text)) {
                         if (!m.disabled) continue;
                         const scale = m.scale || 1;
+                        const turned = (m.transform || 0) % 2 === 1;
                         off.push({
                             name: m.name,
                             description: m.description || m.name,
@@ -93,8 +105,8 @@ Singleton {
                             x: m.x, y: m.y,
                             width: m.width || 0, height: m.height || 0,
                             scale: scale,
-                            logicalWidth: Math.round((m.width || 0) / scale),
-                            logicalHeight: Math.round((m.height || 0) / scale),
+                            logicalWidth: Math.round((turned ? (m.height || 0) : (m.width || 0)) / scale),
+                            logicalHeight: Math.round((turned ? (m.width || 0) : (m.height || 0)) / scale),
                             refreshRate: m.refreshRate || 0,
                             modes: m.availableModes || [],
                             transform: m.transform || 0,
@@ -113,7 +125,28 @@ Singleton {
         stderr: StdioCollector {}
     }
 
-    function refreshAll() { allProc.running = true; }
+    function refreshAll() {
+        Hyprland.refreshMonitors();
+        allProc.running = true;
+    }
+
+    // The layout can be changed from outside this shell -- from a terminal, by
+    // another tool, or by Hyprland itself reacting to something -- and a
+    // reconfigure does not reliably reach us as an event. A panel showing a stale
+    // layout is worse than one showing none: it drew a gap that was not there and
+    // warned about a pointer that could cross perfectly well. So while something
+    // is looking at the tab, the truth is re-read; when nothing is, this costs
+    // nothing at all.
+    property int viewers: 0
+    function subscribe() { viewers++; refreshAll(); }
+    function unsubscribe() { viewers = Math.max(0, viewers - 1); }
+
+    Timer {
+        interval: 2000
+        repeat: true
+        running: root.viewers > 0
+        onTriggered: root.refreshAll()
+    }
 
     readonly property int count: root.list.length
 
@@ -177,6 +210,48 @@ Singleton {
         if (dpi >= 190) return 1.5;
         if (dpi >= 150) return 1.25;
         return 1;
+    }
+
+    function rotationLabel(t) {
+        switch (t) {
+        case 1: return "90°";
+        case 2: return "180°";
+        case 3: return "270°";
+        case 4: return "flipped";
+        case 5: return "flip 90°";
+        case 6: return "flip 180°";
+        case 7: return "flip 270°";
+        default: return "";
+        }
+    }
+
+    // Screens that do not touch leave dead space, and the pointer cannot cross
+    // dead space -- the layout looks right and the cursor refuses to move
+    // between two monitors sitting side by side. Rotating a screen is the usual
+    // way to end up here, because its footprint changes underneath a layout
+    // built for the old one.
+    readonly property bool hasGap: {
+        const on = [];
+        for (const m of root.list) if (!m.disabled) on.push(m);
+        if (on.length < 2) return false;
+        for (const a of on) {
+            let touches = false;
+            for (const b of on) {
+                if (a.name === b.name) continue;
+                const hTouch = (a.x + a.logicalWidth === b.x || b.x + b.logicalWidth === a.x)
+                    && a.y < b.y + b.logicalHeight && b.y < a.y + a.logicalHeight;
+                const vTouch = (a.y + a.logicalHeight === b.y || b.y + b.logicalHeight === a.y)
+                    && a.x < b.x + b.logicalWidth && b.x < a.x + a.logicalWidth;
+                if (hTouch || vTouch) { touches = true; break; }
+            }
+            if (!touches) return true;
+        }
+        return false;
+    }
+
+    function arrange() {
+        root.runChange(["neobrix-monitors", "--revert-after", String(root.revertWindow),
+                        "arrange"]);
     }
 
     readonly property var transformOptions: [

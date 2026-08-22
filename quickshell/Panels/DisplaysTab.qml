@@ -19,6 +19,11 @@ import qs.Services
 Item {
     id: root
 
+    // Set by the control centre while this tab is the visible one, so the layout
+    // is re-read only when somebody is looking at it.
+    property bool active: false
+    onActiveChanged: active ? Monitors.subscribe() : Monitors.unsubscribe()
+
     property string selected: ""
 
     readonly property var current: {
@@ -143,13 +148,32 @@ Item {
                             }
                         }
 
-                        Text {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: Monitors.count > 1 ? "Drag a screen to move it. Edges snap."
-                                                     : "Nothing to arrange with one screen."
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 8
-                            color: Theme.foregroundDim
+                            spacing: Theme.spaceXs
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: Monitors.hasGap
+                                      ? "A screen is not touching the others — the pointer cannot cross the gap."
+                                      : Monitors.count > 1 ? "Drag a screen to move it. Edges snap."
+                                                           : "Nothing to arrange with one screen."
+                                wrapMode: Text.WordWrap
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 8
+                                font.weight: Monitors.hasGap ? Theme.weightHeavy : Theme.weightBold
+                                color: Monitors.hasGap ? Theme.warning : Theme.foregroundDim
+                            }
+
+                            BrixButton {
+                                visible: Monitors.hasGap
+                                text: "TIDY UP"
+                                fontSize: 8
+                                vPadding: 2
+                                accent: Theme.warning
+                                behind: Theme.surface
+                                onClicked: Monitors.arrange()
+                            }
                         }
 
                         // The map. Positions are logical layout coordinates:
@@ -233,6 +257,21 @@ Item {
                                             font.pixelSize: 8
                                             color: Theme.textOn(tile.color)
                                             opacity: 0.75
+                                        }
+                                        // The tile already turns on its side when
+                                        // a screen is rotated, since it is drawn
+                                        // from the real footprint. This says which
+                                        // way, which the shape alone cannot.
+                                        Text {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            visible: tile.height > 48
+                                                     && Monitors.rotationLabel(tile.modelData.transform) !== ""
+                                            text: Monitors.rotationLabel(tile.modelData.transform)
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 8
+                                            font.weight: Theme.weightHeavy
+                                            color: Theme.textOn(tile.color)
+                                            opacity: 0.9
                                         }
                                     }
 

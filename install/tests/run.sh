@@ -543,6 +543,63 @@ test_monitors() {
     unset NB_EVAL_LOG
 }
 
+test_monitors_rotation() {
+    case_ "a rotated screen occupies its mode turned on its side"
+
+    local dir="$TMP/rot"
+    mkdir -p "$dir/bin" "$dir/state"
+    # DP-1 is rotated: 2560x1440 reported, 1440x2560 occupied. HDMI sits where a
+    # layout built before the rotation would have left it -- 1920 + 2560 -- which
+    # is 1120px past the rotated panel's real right edge. That gap is dead space
+    # the pointer cannot cross, and it is the bug this covers.
+    cat > "$dir/bin/hyprctl" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == *"monitors all"* || "$*" == "-j monitors" ]]; then
+    cat <<'JSON'
+[
+ {"id":0,"name":"eDP-1","description":"BOE panel","make":"BOE","model":"x","serial":"",
+  "width":1920,"height":1080,"refreshRate":60.0,"x":0,"y":0,"scale":1.0,"transform":0,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":false,
+  "physicalWidth":340,"physicalHeight":190,"availableModes":["1920x1080@60.00Hz"]},
+ {"id":1,"name":"DP-1","description":"Acme Tall 1","make":"Acme","model":"Tall","serial":"1",
+  "width":2560,"height":1440,"refreshRate":144.0,"x":1920,"y":0,"scale":1.0,"transform":1,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":true,
+  "physicalWidth":600,"physicalHeight":340,"availableModes":["2560x1440@144.00Hz"]},
+ {"id":2,"name":"HDMI-A-2","description":"Acme Wide 2","make":"Acme","model":"Wide","serial":"2",
+  "width":3440,"height":1440,"refreshRate":100.0,"x":4480,"y":0,"scale":1.0,"transform":0,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":false,
+  "physicalWidth":800,"physicalHeight":335,"availableModes":["3440x1440@100.00Hz"]}
+]
+JSON
+    exit 0
+fi
+if [[ ${1:-} == eval ]]; then printf '%s\n' "$2" >> "${NB_EVAL_LOG:?}"; echo ok; exit 0; fi
+echo ok
+STUB
+    chmod +x "$dir/bin/hyprctl"
+    export NB_EVAL_LOG="$dir/eval.log"
+    : > "$NB_EVAL_LOG"
+
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    local listing; listing="$("${run[@]}" list 2>&1)"
+    assert_has "list marks the rotation" "rot90" "$listing"
+
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" arrange >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+
+    # 1920 + 1440 = 3360, using the rotated footprint. Packing on the reported
+    # 2560 would put it back at 4480 and leave the gap in place.
+    assert_has "arrange packs against the rotated width" 'position="3360x0"' "$evals"
+    assert_lacks "arrange does not use the unrotated width" 'position="4480x0"' "$evals"
+    # The rotation itself must survive being re-applied.
+    assert_has "arrange preserves the transform" "transform=1" "$evals"
+
+    unset NB_EVAL_LOG
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -551,6 +608,7 @@ if (( DO_LOCAL )); then
     test_packages_reporting
     test_confirmation
     test_monitors
+    test_monitors_rotation
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"

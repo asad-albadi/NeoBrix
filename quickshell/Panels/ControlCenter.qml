@@ -148,6 +148,7 @@ BrixPopup {
                 DisplaysTab {
                     anchors.fill: parent
                     visible: Panels.controlTab === "displays"
+                    active: root.open && visible
                 }
 
                 NotificationCenter {
