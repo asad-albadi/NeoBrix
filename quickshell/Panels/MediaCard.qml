@@ -72,11 +72,42 @@ BrixCard {
     }
 
     // ── active player ───────────────────────────────────────────────────────
+    // When the card is short -- a two-line title and a set of transport buttons
+    // leave about 30px for a cover, which is a smudge rather than artwork -- the
+    // art stops being a thumbnail and becomes the card's background instead:
+    // faded, and clipped to the card's own corners. The space goes to
+    // the things that need it, and the artwork is still there.
+    readonly property bool artAsBackdrop: artSlot.height < 56 && Media.artUrl !== ""
+
+    ClippingRectangle {
+        anchors.fill: parent
+        radius: root.radius
+        color: "transparent"
+        visible: root.showPlayer && root.artAsBackdrop
+
+        Image {
+            anchors.fill: parent
+            source: Media.artUrl
+            visible: status === Image.Ready
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            // Faded, not blurred. Low enough that the title stays the brightest
+            // thing on the card -- a cover can be near-white or near-black, so
+            // this has to stay out of the way of both without a scrim over it.
+            opacity: 0.22
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.spaceMd
         visible: root.showPlayer
         spacing: Theme.spaceSm
+        // A backstop, not the fix: whatever else changes in here, nothing gets
+        // to paint outside the card again. Clipping the column rather than the
+        // card leaves the card's own border and shadow alone.
+        clip: true
 
         // Which player this is, kept out of the way in the top-right corner.
         BrixChip {
@@ -87,19 +118,41 @@ BrixCard {
         }
 
         // Album art. The square is centred in whatever room the column has left,
-        // so this is what absorbs a tall card rather than an empty spacer.
+        // so this is what absorbs a tall card rather than an empty spacer -- and
+        // what gives room back when there is not enough.
+        //
+        // It used to hold a 72px floor, which a layout cannot shrink past: a
+        // two-line title (an ordinary YouTube name wraps) plus the artist, the
+        // progress row and the transport buttons then needed more height than the
+        // card had, and a ColumnLayout that cannot fit its children does not
+        // compress them -- it overflows. The transport buttons ended up painted
+        // below the card, outside it entirely. The art yields first instead, down
+        // to nothing if the card is really short, because a cover with no
+        // controls is worth less than controls with no cover.
         Item {
+            id: artSlot
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumHeight: 72
+            Layout.minimumHeight: 0
 
             BrixCard {
                 id: artFrame
                 anchors.centerIn: parent
-                // Cap it so a very tall card does not produce a comically large
-                // cover; below the cap it tracks the smaller dimension.
-                width: Math.max(72, Math.min(parent.width, parent.height, 190))
+                // Capped so a very tall card does not produce a comically large
+                // cover; below the cap it tracks the smaller dimension of the
+                // room it has been given.
+                //
+                // No floor. A floor here was the other half of the overflow: the
+                // parent had shrunk, the frame had not, and a 72px square in a
+                // 40px slot simply painted over the title underneath it. Once
+                // there is less room than a cover is worth, it stands down and
+                // lets the title and controls have the space.
+                width: Math.min(parent.width, parent.height, 190)
                 height: width
+                // Not as a backdrop, and not as a smudge either: with no
+                // artwork to show there is still a frame and a placeholder
+                // glyph, and neither is worth 30 pixels.
+                visible: !root.artAsBackdrop && width >= 40
                 radius: Theme.radiusSm
                 color: Theme.surfaceDeep
                 shadowOffset: Theme.shadowSm
@@ -217,13 +270,17 @@ BrixCard {
                 accent: Theme.primary
             }
 
+            // Only when there is a duration to show. A stream reports no
+            // mpris:length, and a dim "--:--" in its place adds a column of
+            // punctuation that says nothing the handle-less meter beside it has
+            // not already said.
             Text {
-                text: Media.length > 0 ? Media.fmtTime(Media.length) : "--:--"
+                visible: Media.length > 0
+                text: Media.fmtTime(Media.length)
                 font.family: Theme.fontMono
                 font.pixelSize: Theme.fontXs
                 font.weight: Theme.weightBold
                 color: Theme.foregroundDim
-                opacity: Media.length > 0 ? 1.0 : 0.6
             }
         }
 
