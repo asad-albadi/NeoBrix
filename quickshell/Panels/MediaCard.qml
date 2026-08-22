@@ -72,12 +72,12 @@ BrixCard {
     }
 
     // ── active player ───────────────────────────────────────────────────────
-    // When the card is short -- a two-line title and a set of transport buttons
-    // leave about 30px for a cover, which is a smudge rather than artwork -- the
-    // art stops being a thumbnail and becomes the card's background instead:
-    // faded, and clipped to the card's own corners. The space goes to
-    // the things that need it, and the artwork is still there.
-    readonly property bool artAsBackdrop: artSlot.height < 56 && Media.artUrl !== ""
+    // The cover is the card's background, not a thumbnail on it: faded, clipped
+    // to the card's own corners, with the title and controls over the top. It
+    // started as a way out of a card too short for a real thumbnail -- two lines
+    // of title leave about 30px, which is a smudge -- and turned out to read
+    // better at every size, so it is simply how the card looks now.
+    readonly property bool artAsBackdrop: Media.artUrl !== ""
 
     ClippingRectangle {
         anchors.fill: parent
@@ -149,9 +149,9 @@ BrixCard {
                 // lets the title and controls have the space.
                 width: Math.min(parent.width, parent.height, 190)
                 height: width
-                // Not as a backdrop, and not as a smudge either: with no
-                // artwork to show there is still a frame and a placeholder
-                // glyph, and neither is worth 30 pixels.
+                // Only when there is no artwork at all: then the frame and its
+                // placeholder glyph are all the card has to look at. Never
+                // alongside the backdrop, which is the artwork already.
                 visible: !root.artAsBackdrop && width >= 40
                 radius: Theme.radiusSm
                 color: Theme.surfaceDeep
@@ -287,6 +287,10 @@ BrixCard {
         // ── transport ───────────────────────────────────────────────────────
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
+            // The buttons carry a 3px drop shadow that the layout does not count
+            // in their height, so against the bottom of a clipped column the
+            // play button lost the bottom of its shadow. This is that 3px.
+            Layout.bottomMargin: Theme.shadowSm
             spacing: Theme.spaceMd
 
             BrixIconButton {
@@ -313,6 +317,16 @@ BrixCard {
         }
 
         // Player picker, only when there is actually a choice to make.
+        // Balances the flexible slot above the title: with the artwork filling
+        // the card, the words and controls read best sitting in the middle of it
+        // rather than pushed to the top with the picture bare underneath.
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumHeight: 0
+            visible: root.artAsBackdrop
+        }
+
         Flow {
             Layout.fillWidth: true
             visible: Media.players.length > 1
