@@ -184,6 +184,9 @@ Item {
                             id: canvas
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            // A tile dragged past the edge would otherwise paint
+                            // over the card and outside the window entirely.
+                            clip: true
 
                             readonly property real pad: 10
                             readonly property real minX: {
@@ -216,19 +219,8 @@ Item {
                             // the same whatever is plugged in.
                             readonly property real tol: 12 / canvas.factor
 
-                            // Live drag state, so the guides know what is moving
-                            // and where it currently is.
-                            property string dragName: ""
-                            property real dragW: 0
-                            property real dragH: 0
-                            property real dragLX: 0
-                            property real dragLY: 0
-
-                            // Every position worth landing on, defined once and
-                            // used both to draw the guides and to decide the
-                            // drop -- so what is shown cannot drift from what
-                            // happens. These are positions for the dragged
-                            // screen's own edge, which is what the guide marks.
+                            // Every position worth landing on, for the dragged
+                            // screen's own leading edge.
                             function candidates(name, size, axis) {
                                 const out = [0];   // square up with the layout corner
                                 for (const o of Monitors.list) {
@@ -271,38 +263,6 @@ Item {
                             function toCanvasY(ly) { return pad + (ly - canvas.minY) * canvas.factor; }
                             function toLogicalX(cx) { return (cx - pad) / canvas.factor + canvas.minX; }
                             function toLogicalY(cy) { return (cy - pad) / canvas.factor + canvas.minY; }
-
-                            // Faded lines at every snap point while dragging,
-                            // brightening as one comes into range, so the
-                            // available landings are visible rather than felt
-                            // out by trial and error.
-                            Repeater {
-                                model: canvas.dragName !== ""
-                                       ? canvas.candidates(canvas.dragName, canvas.dragW, "x") : []
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    x: canvas.toCanvasX(modelData)
-                                    y: 0
-                                    width: 1
-                                    height: canvas.height
-                                    color: Theme.primary
-                                    opacity: Math.abs(modelData - canvas.dragLX) < canvas.tol ? 0.7 : 0.16
-                                }
-                            }
-
-                            Repeater {
-                                model: canvas.dragName !== ""
-                                       ? canvas.candidates(canvas.dragName, canvas.dragH, "y") : []
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    x: 0
-                                    y: canvas.toCanvasY(modelData)
-                                    width: canvas.width
-                                    height: 1
-                                    color: Theme.primary
-                                    opacity: Math.abs(modelData - canvas.dragLY) < canvas.tol ? 0.7 : 0.16
-                                }
-                            }
 
                             Repeater {
                                 model: Monitors.list
@@ -397,11 +357,6 @@ Item {
                                             ma.grabX = p.x - tile.x;
                                             ma.grabY = p.y - tile.y;
                                             ma.dragging = true;
-                                            canvas.dragW = tile.modelData.logicalWidth;
-                                            canvas.dragH = tile.modelData.logicalHeight;
-                                            canvas.dragLX = tile.modelData.x;
-                                            canvas.dragLY = tile.modelData.y;
-                                            canvas.dragName = tile.modelData.name;
                                         }
 
                                         onPositionChanged: mouse => {
@@ -409,20 +364,16 @@ Item {
                                             const p = ma.mapToItem(canvas, mouse.x, mouse.y);
                                             tile.x = p.x - ma.grabX;
                                             tile.y = p.y - ma.grabY;
-                                            canvas.dragLX = canvas.toLogicalX(tile.x);
-                                            canvas.dragLY = canvas.toLogicalY(tile.y);
                                         }
 
                                         onCanceled: {
                                             ma.dragging = false;
-                                            canvas.dragName = "";
                                             ma.rebind();
                                         }
 
                                         onReleased: mouse => {
                                             if (!ma.dragging) return;
                                             ma.dragging = false;
-                                            canvas.dragName = "";
 
                                             const lx0 = canvas.toLogicalX(tile.x);
                                             const ly0 = canvas.toLogicalY(tile.y);

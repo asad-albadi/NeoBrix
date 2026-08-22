@@ -521,10 +521,10 @@ matters more than it looks: a gap is dead space, and **the pointer cannot cross
 dead space**, so screens that look adjacent refuse to hand the cursor over.
 
 **Drag to arrange.** Screens are drawn to scale in their real layout positions.
-Dragging one shows faded guides at every place it can land — flush either side of
-a neighbour, edges level, centres aligned, or squared up with the corner of the
-layout — and the guide brightens as it comes into range. The nearest lands.
-**Hold Ctrl to ignore them** and put a screen exactly where you dropped it.
+Dragging one snaps to the nearest useful landing — flush either side of a
+neighbour, edges level, centres aligned, or squared up with the corner of the
+layout. **Hold Ctrl** to ignore all of that and put a screen exactly where you
+dropped it.
 
 Snapping is measured on screen, not in desktop pixels: twelve pixels under the
 pointer, whatever is plugged in. A fixed threshold in desktop pixels is a third
