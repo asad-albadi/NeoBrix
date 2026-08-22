@@ -85,6 +85,11 @@ Singleton {
     // to show a row and offer it back. This is a read; writes still go through
     // neobrix-monitors so there is one owner of the layout.
     property var offlineList: []
+    property string offlineJson: "[]"
+
+    // Set while a drag is in progress. Even a no-op refresh is worth skipping
+    // then: it is the one moment when replacing the model would be felt.
+    property bool interacting: false
 
     Process {
         id: allProc
@@ -119,7 +124,17 @@ Singleton {
                         });
                     }
                 } catch (e) {}
-                root.offlineList = off;
+                // Only assign when it actually changed. A fresh array every two
+                // seconds re-evaluates `list`, which resets the Repeater and
+                // destroys the delegate -- and the MouseArea holding the drag
+                // state -- out from under anyone mid-drag, so the drop never
+                // landed and the screen sprang back. Three of four test drags
+                // failed this way and were written off as flaky input.
+                const next = JSON.stringify(off);
+                if (next !== root.offlineJson) {
+                    root.offlineJson = next;
+                    root.offlineList = off;
+                }
             }
         }
         stderr: StdioCollector {}
@@ -144,7 +159,7 @@ Singleton {
     Timer {
         interval: 2000
         repeat: true
-        running: root.viewers > 0
+        running: root.viewers > 0 && !root.interacting
         onTriggered: root.refreshAll()
     }
 
@@ -210,6 +225,24 @@ Singleton {
         if (dpi >= 190) return 1.5;
         if (dpi >= 150) return 1.25;
         return 1;
+    }
+
+    // Hyprland reports the real rate (143.981, 59.951) while the mode list
+    // advertises 144 and 59.95, so comparing the two with === never matched and
+    // the mode picker showed a raw string with no row highlighted. Snap to the
+    // advertised mode, the same way neobrix-monitors does when it saves one.
+    function modeStringFor(m) {
+        if (!m) return "";
+        let best = "", bestD = 1.5;
+        for (const am of m.modes) {
+            const res = am.split("@")[0];
+            const hz = parseFloat((am.split("@")[1] || "").replace("Hz", ""));
+            if (res !== m.width + "x" + m.height || isNaN(hz)) continue;
+            const d = Math.abs(hz - m.refreshRate);
+            if (d < bestD) { best = res + "@" + (Math.round(hz * 100) / 100); bestD = d; }
+        }
+        return best !== "" ? best
+             : m.width + "x" + m.height + "@" + (Math.round(m.refreshRate * 100) / 100);
     }
 
     function rotationLabel(t) {
@@ -376,10 +409,12 @@ Singleton {
             onStreamFinished: {
                 if (text.trim() !== "") {
                     root.lastError = text.trim().split("\n")[0];
-                    // A change that never applied has nothing to revert, and
-                    // leaving a countdown on screen for it reads as though
-                    // something happened.
-                    root.pending = false;
+                    // The countdown deliberately stays. apply_json reports per
+                    // output, and it does so *after* the snapshot was taken and
+                    // the detached revert scheduled -- so one output rejecting
+                    // its mode does not mean nothing happened. Clearing the
+                    // countdown here hid Keep and Revert while the watcher went
+                    // on to undo a change the person had no way to keep.
                 }
             }
         }

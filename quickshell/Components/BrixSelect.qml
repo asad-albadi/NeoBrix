@@ -29,9 +29,17 @@ ColumnLayout {
     function labelOf(opt) { return opt !== null && typeof opt === "object" ? opt.label : opt; }
     function valueOf(opt) { return opt !== null && typeof opt === "object" ? opt.value : opt; }
 
+    // Numbers compare with a tolerance. A scale of 1.333333 in a list will never
+    // be === the 1.3333333333 that comes back from the compositor, and an exact
+    // comparison silently shows no selection at all.
+    function sameValue(a, b) {
+        if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) < 0.001;
+        return a === b;
+    }
+
     readonly property string currentLabel: {
         for (const o of root.options)
-            if (valueOf(o) === root.value) return labelOf(o);
+            if (root.sameValue(valueOf(o), root.value)) return labelOf(o);
         return root.value !== undefined && root.value !== null && root.value !== ""
              ? String(root.value) : root.placeholder;
     }
@@ -99,7 +107,7 @@ ColumnLayout {
                 width: list.width
                 height: 22
                 radius: Theme.radiusXs
-                color: root.valueOf(modelData) === root.value ? Theme.primary
+                color: root.sameValue(root.valueOf(modelData), root.value) ? Theme.primary
                      : hover.hovered ? Theme.surfaceAlt : "transparent"
 
                 Text {
@@ -113,7 +121,7 @@ ColumnLayout {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontXs
                     font.weight: Theme.weightBold
-                    color: root.valueOf(parent.modelData) === root.value
+                    color: root.sameValue(root.valueOf(parent.modelData), root.value)
                            ? Theme.textOn(Theme.primary) : Theme.foreground
                 }
 

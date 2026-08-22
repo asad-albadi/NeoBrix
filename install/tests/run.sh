@@ -641,6 +641,79 @@ test_monitors_place_guard() {
     unset NB_EVAL_LOG
 }
 
+test_monitors_hazards() {
+    case_ "the ways this could take the screen away, or lose the profiles"
+
+    local dir="$TMP/haz"
+    mkdir -p "$dir/bin" "$dir/state"
+    cp "$TMP/mon/bin/hyprctl" "$dir/bin/hyprctl"
+    export NB_EVAL_LOG="$dir/eval.log"
+    : > "$NB_EVAL_LOG"
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    # Two profiles for the same screens, one of which switches a screen off --
+    # "laptop closed while docked" is an ordinary thing to save. Hyprland applies
+    # monitor rules in order and the last match wins, so emitting every profile
+    # let whichever sorted last decide, and a stray `disabled = true` at config
+    # parse time is a black screen with no desktop left to undo it from.
+    "${run[@]}" save "Alone" >/dev/null 2>&1
+    "${run[@]}" set eDP-1 disabled=true >/dev/null 2>&1
+    "${run[@]}" save "Zzz docked" >/dev/null 2>&1
+
+    local gen="$dir/gen.lua"
+    env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "XDG_RUNTIME_DIR=$dir" \
+        NB_GENERATED="$gen" "$REPO/scripts/neobrix-monitors" generate >/dev/null 2>&1
+    local lua; lua="$(cat "$gen" 2>/dev/null)"
+    assert_lacks "generate never switches a screen off at startup" "disabled = true" "$lua"
+    assert_eq "generate emits one profile, not every profile" "1" \
+              "$(printf '%s\n' "$lua" | grep -c -- '^    -- .*(' || true)"
+
+    # A failed producer must not replace the state file. It used to `mv` an empty
+    # file over it, losing every profile -- and then nothing could read it again.
+    printf 'not json at all' > "$dir/state/neobrix/monitors.json"
+    local before; before="$(cat "$dir/state/neobrix/monitors.json")"
+    "${run[@]}" profiles >/dev/null 2>&1
+    assert_eq "invalid state is ignored, not overwritten" "$before" \
+              "$(cat "$dir/state/neobrix/monitors.json")"
+    local out; out="$("${run[@]}" save "Recovered" 2>&1)"
+    assert_has "a profile can still be saved afterwards" "saved" "$out"
+    assert_has "and the state file is valid again" "Recovered" "$("${run[@]}" profiles 2>&1)"
+
+    unset NB_EVAL_LOG
+}
+
+test_monitors_cap_preserves() {
+    case_ "capping the refresh keeps every other setting"
+
+    local dir="$TMP/rot"      # the stub with a rotated panel
+    mkdir -p "$dir/state2"
+    export NB_EVAL_LOG="$dir/eval2.log"
+    : > "$NB_EVAL_LOG"
+    # eDP-1 in this stub is unrotated, so rotate it through the tool first and
+    # then cap: the cap must not quietly undo the rotation.
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state2"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" cap 60 >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+    # The stub's eDP-1 advertises only 60Hz, so there is nothing to cap and
+    # nothing should be emitted at all -- capping to the mode already in force
+    # would still have rewritten transform and vrr.
+    assert_lacks "cap does nothing when the panel is already at the limit" 'output="eDP-1"' "$evals"
+
+    # And on the panel that does have a faster mode, the fields come along.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" set eDP-1 vrr=1 >/dev/null 2>&1
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" uncap >/dev/null 2>&1
+    evals="$(cat "$NB_EVAL_LOG")"
+    assert_lacks "uncap does nothing when nothing was capped" 'output="eDP-1"' "$evals"
+
+    unset NB_EVAL_LOG
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -651,6 +724,8 @@ if (( DO_LOCAL )); then
     test_monitors
     test_monitors_rotation
     test_monitors_place_guard
+    test_monitors_hazards
+    test_monitors_cap_preserves
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"

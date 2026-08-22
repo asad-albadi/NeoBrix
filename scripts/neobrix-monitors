@@ -162,7 +162,13 @@ w = max(len(m["name"]) for m in mons)
 for m in sorted(mons, key=lambda m: (m["x"], m["y"])):
     flags = []
     if m.get("disabled"): flags.append("off")
-    if m.get("transform"): flags.append("rot{}".format(m["transform"] * 90 % 360))
+    # 4-7 are flips, not further rotations: transform 4 is flipped-unrotated and
+    # 5 is flipped-90, so multiplying by 90 called a flipped screen "rot0" and
+    # made it indistinguishable from an ordinary 90.
+    if m.get("transform"):
+        t = m["transform"]
+        flags.append(("rot90", "rot180", "rot270", "flip", "flip90", "flip180", "flip270")[t - 1]
+                     if 1 <= t <= 7 else "transform" + str(t))
     if m.get("vrr"): flags.append("vrr")
     if (m.get("mirrorOf") or "none") != "none": flags.append("mirror of " + m["mirrorOf"])
     if m.get("focused"): flags.append("focused")
@@ -178,14 +184,29 @@ PY
 
 # ── the state file ───────────────────────────────────────────────────────────
 
+valid_json() { python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$1" 2>/dev/null; }
+
 read_state() {
-    [[ -r $STATE ]] && cat "$STATE" || printf '{"version": 1, "profiles": {}}'
+    if [[ -r $STATE ]] && valid_json "$STATE"; then
+        cat "$STATE"
+    else
+        [[ -s ${STATE:-} ]] && printf 'neobrix-monitors: %s is not valid JSON; ignoring it\n' "$STATE" >&2
+        printf '{"version": 1, "profiles": {}}'
+    fi
 }
 
+# The producer is a pipeline, and a pipeline that dies still closes its end of
+# the pipe -- so this used to `mv` an empty file over the state and delete every
+# saved profile, after which nothing could read it again either.
 write_state() {
     mkdir -p "$STATE_DIR"
-    cat > "$STATE.tmp"
-    mv "$STATE.tmp" "$STATE"
+    local tmp="$STATE.tmp.$$"
+    cat > "$tmp"
+    if ! valid_json "$tmp"; then
+        rm -f "$tmp"
+        die "refusing to write an invalid state file; $STATE is unchanged"
+    fi
+    mv "$tmp" "$STATE"
 }
 
 cmd_profiles() {
@@ -285,34 +306,67 @@ PY
 # whatever asked for it is gone. It re-applies the snapshot itself rather than
 # calling back into this script, so it cannot be defeated by the script being
 # mid-edit or off PATH.
+#
+# Every pending change carries an id. Without one, a second change would
+# overwrite the snapshot while the first watcher was still asleep, and that
+# watcher would then restore the *wrong* state and delete the pending file --
+# making the first change permanent without anyone confirming it, reverting the
+# second one early, and leaving `confirm` to report nothing pending while the
+# panel was still counting down.
 schedule_revert() {
-    local seconds="$1"
+    local seconds="$1" id="$2"
     setsid bash -c '
         sleep "$1"
-        [[ -r "$2" ]] || exit 0
-        json="$(cat "$2")"
-        rm -f "$2"
-        while IFS= read -r spec; do
-            [[ -n $spec ]] && hyprctl eval "$spec" >/dev/null 2>&1
-        done < <(NB_JSON="$json" python3 -c "
-import json, os
-outs = json.loads(os.environ[\"NB_JSON\"])
-for name, o in sorted(outs.items()):
+        [[ -r "$3" ]] || exit 0
+        NB_PENDING="$3" NB_ID="$2" python3 -c "
+import json, os, subprocess, sys
+try:
+    doc = json.load(open(os.environ[\"NB_PENDING\"]))
+except Exception:
+    sys.exit(0)
+if doc.get(\"id\") != os.environ[\"NB_ID\"]:
+    sys.exit(0)          # a newer change owns the snapshot now
+os.remove(os.environ[\"NB_PENDING\"])
+for name, o in sorted(doc.get(\"outputs\", {}).items()):
     if o.get(\"disabled\"):
-        print(\"hl.monitor({output=\\\"%s\\\", disabled=true})\" % name)
+        spec = \"hl.monitor({output=\\\"%s\\\", disabled=true})\" % name
     else:
-        print(\"hl.monitor({output=\\\"%s\\\", mode=\\\"%s\\\", position=\\\"%s\\\", scale=%s, transform=%d, vrr=%d, disabled=false, mirror=\\\"%s\\\"})\" % (
-            name, o.get(\"mode\", \"preferred\"), o.get(\"position\", \"auto\"), o.get(\"scale\", 1),
-            int(o.get(\"transform\", 0)), int(o.get(\"vrr\", 0)), o.get(\"mirror\") or \"none\"))
-")
-    ' _ "$seconds" "$PENDING" >/dev/null 2>&1 < /dev/null &
+        spec = (\"hl.monitor({output=\\\"%s\\\", mode=\\\"%s\\\", position=\\\"%s\\\", scale=%s,\"
+                \" transform=%d, vrr=%d, disabled=false, mirror=\\\"%s\\\"})\") % (
+               name, o.get(\"mode\", \"preferred\"), o.get(\"position\", \"auto\"),
+               o.get(\"scale\", 1), int(o.get(\"transform\", 0)), int(o.get(\"vrr\", 0)),
+               o.get(\"mirror\") or \"none\")
+    subprocess.run([\"hyprctl\", \"eval\", spec],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+"
+    ' _ "$seconds" "$id" "$PENDING" >/dev/null 2>&1 < /dev/null &
     disown 2>/dev/null || true
 }
 
+# The snapshot is taken once per burst, not once per change. Somebody arranging
+# three screens makes several changes in a row, and reverting should put back
+# what was there before they started rather than undoing only the last step. The
+# deadline, on the other hand, restarts with each change -- otherwise a long
+# session of dragging gets yanked back mid-edit by a timer started at the
+# beginning.
 begin_pending() {
     (( REVERT_AFTER > 0 )) || return 0
-    current_state > "$PENDING"
-    schedule_revert "$REVERT_AFTER"
+    local id="$$-${RANDOM}${RANDOM}" baseline
+    if [[ -r $PENDING ]]; then
+        baseline="$(NB_DOC="$(cat "$PENDING")" py <<'PY'
+import json, os
+print(json.dumps(json.loads(os.environ["NB_DOC"]).get("outputs", {}), sort_keys=True))
+PY
+)"
+    else
+        baseline="$(current_state)"
+    fi
+    NB_BASE="$baseline" NB_ID="$id" py <<'PY' > "$PENDING"
+import json, os
+print(json.dumps({"id": os.environ["NB_ID"],
+                  "outputs": json.loads(os.environ["NB_BASE"])}, sort_keys=True))
+PY
+    schedule_revert "$REVERT_AFTER" "$id"
 }
 
 cmd_confirm() {
@@ -321,9 +375,14 @@ cmd_confirm() {
 
 cmd_revert() {
     [[ -r $PENDING ]] || { echo "nothing pending"; return 0; }
-    local json; json="$(cat "$PENDING")"
+    local outputs
+    outputs="$(NB_DOC="$(cat "$PENDING")" py <<'PY'
+import json, os
+print(json.dumps(json.loads(os.environ["NB_DOC"]).get("outputs", {})))
+PY
+)"
     rm -f "$PENDING"
-    apply_json "$json" || true
+    apply_json "$outputs" || true
     echo "reverted"
 }
 
@@ -406,35 +465,57 @@ PY
 # positions alone.
 cmd_arrange() {
     local packed
-    packed="$(NB_MONS="$(raw)" py <<'PY'
+    packed="$(NB_CUR="$(current_state)" NB_MONS="$(raw)" py <<'PY'
 import json, os
 
-mons = [m for m in json.loads(os.environ["NB_MONS"]) if not m.get("disabled")]
+# Built from current_state rather than the raw report, so every setting the
+# screens already have comes along -- and so the mode is the snapped one the
+# hardware advertises rather than the 59.951 it reports.
+cur = json.loads(os.environ["NB_CUR"])
+mons = {m["name"]: m for m in json.loads(os.environ["NB_MONS"])}
 
-def footprint(m):
-    """Logical size, which is the mode turned on its side for a quarter turn."""
+def footprint(name):
+    m = mons.get(name) or {}
     scale = m.get("scale") or 1
-    w, h = m["width"], m["height"]
+    w, h = m.get("width", 0), m.get("height", 0)
     if (m.get("transform") or 0) % 2 == 1:
         w, h = h, w
     return round(w / scale), round(h / scale)
 
-mons.sort(key=lambda m: (m["x"], m["y"]))
-out, x = {}, None
-for m in mons:
-    w, h = footprint(m)
-    if x is None:
-        x = m["x"]          # the leftmost screen stays where it is
-    out[m["name"]] = {
-        "mode": "{}x{}@{:g}".format(m["width"], m["height"], round(m["refreshRate"], 2)),
-        "position": "{}x{}".format(x, m["y"]),
-        "scale": round(m.get("scale") or 1, 6),
-        "transform": m.get("transform") or 0,
-        "vrr": 1 if m.get("vrr") else 0,
-        "disabled": False,
-        "mirror": m.get("mirrorOf") or "none",
-    }
-    x += w
+def pos(o):
+    x, _, y = o["position"].partition("x")
+    return int(x), int(y)
+
+live = [(n, o) for n, o in cur.items() if not o.get("disabled")]
+if not live:
+    print(json.dumps({}))
+    raise SystemExit(0)
+
+# Pack along the axis the screens are actually spread over. Packing x
+# unconditionally turned a vertical stack into a diagonal staircase whose
+# neighbours met only at the corners -- which still counts as a gap, so the
+# warning that offered to tidy up never went away.
+spanx = max(pos(o)[0] + footprint(n)[0] for n, o in live) - min(pos(o)[0] for n, o in live)
+spany = max(pos(o)[1] + footprint(n)[1] for n, o in live) - min(pos(o)[1] for n, o in live)
+vertical = spany > spanx
+
+live.sort(key=lambda t: (pos(t[1])[1], pos(t[1])[0]) if vertical
+                        else (pos(t[1])[0], pos(t[1])[1]))
+
+out, cursor = {}, None
+for name, o in live:
+    w, h = footprint(name)
+    x, y = pos(o)
+    if cursor is None:
+        cursor = y if vertical else x     # the first screen stays put
+    o = dict(o)
+    o["position"] = "{}x{}".format(x, cursor) if vertical else "{}x{}".format(cursor, y)
+    out[name] = o
+    cursor += h if vertical else w
+
+# Screens that are off keep their stored settings untouched.
+for name, o in cur.items():
+    out.setdefault(name, o)
 print(json.dumps(out, indent=2, sort_keys=True))
 PY
 )"
@@ -527,12 +608,35 @@ for m in json.loads(os.environ["NB_MONS"]):
 PY
 }
 
+# Re-apply one output with a different mode, keeping every other setting it
+# already has. Handing apply_json a spec of only mode/position/scale lets its
+# defaults fill in the rest, which quietly un-rotated a rotated panel and turned
+# VRR off every time the charger came out.
+set_mode_only() {
+    local out="$1" mode="$2"
+    apply_json "$(NB_CUR="$(current_state)" NB_OUT="$out" NB_MODE="$mode" py <<'PY'
+import json, os
+cur = json.loads(os.environ["NB_CUR"])
+o = dict(cur[os.environ["NB_OUT"]])
+o["mode"] = os.environ["NB_MODE"]
+print(json.dumps({os.environ["NB_OUT"]: o}, sort_keys=True))
+PY
+)"
+}
+
 cmd_cap() {
     local hz="${1:?a refresh rate}"
-    local restore_dir="$STATE_DIR"; mkdir -p "$restore_dir"
+    mkdir -p "$STATE_DIR"
     local out
     while IFS= read -r out; do
         [[ -n $out ]] || continue
+        local restore="$STATE_DIR/refresh-restore-$out"
+        # Capping twice would record the capped mode as the one to go back to,
+        # and then uncapping would leave the panel slow for good.
+        if [[ -e $restore ]]; then
+            printf '%s is already capped\n' "$out"
+            continue
+        fi
         local target
         target="$(NB_MONS="$(raw)" NB_OUT="$out" NB_HZ="$hz" py <<'PY'
 import json, os
@@ -551,7 +655,7 @@ for m in json.loads(os.environ["NB_MONS"]):
         except ValueError:
             continue
         # Fastest mode that still respects the cap; if nothing is slow enough,
-        # the panel simply has no lower gear and is left alone.
+        # the panel has no lower gear and is left alone.
         if hz <= cap + 0.5 and (best is None or hz > best):
             best = hz
     if best is not None:
@@ -559,25 +663,16 @@ for m in json.loads(os.environ["NB_MONS"]):
 PY
 )"
         [[ -n $target ]] || continue
-        # Remember the mode in force before the cap, so uncapping restores what
-        # was actually there rather than guessing at the fastest.
-        NB_CUR="$(current_state)" NB_OUT="$out" py <<'PY' > "$restore_dir/refresh-restore-$out"
+        local now
+        now="$(NB_CUR="$(current_state)" NB_OUT="$out" py <<'PY'
 import json, os
 print(json.loads(os.environ["NB_CUR"])[os.environ["NB_OUT"]]["mode"])
 PY
-        apply_json "$(printf '{"%s": {"mode": "%s", "position": "%s", "scale": %s}}' \
-            "$out" "$target" \
-            "$(NB_CUR="$(current_state)" NB_OUT="$out" py <<'PY'
-import json, os
-print(json.loads(os.environ["NB_CUR"])[os.environ["NB_OUT"]]["position"])
-PY
-)" \
-            "$(NB_CUR="$(current_state)" NB_OUT="$out" py <<'PY'
-import json, os
-print(json.loads(os.environ["NB_CUR"])[os.environ["NB_OUT"]]["scale"])
-PY
-)")"
-        printf 'capped %s at %s\n' "$out" "$target"
+)"
+        [[ $now == "$target" ]] && continue     # already there; nothing to restore
+        printf '%s' "$now" > "$restore"
+        set_mode_only "$out" "$target"
+        printf 'capped %s at %s (was %s)\n' "$out" "$target" "$now"
     done < <(internal_outputs)
 }
 
@@ -585,24 +680,16 @@ cmd_uncap() {
     local out
     while IFS= read -r out; do
         [[ -n $out ]] || continue
-        local f="$STATE_DIR/refresh-restore-$out" mode=""
-        [[ -r $f ]] && mode="$(cat "$f")"
-        # Nothing remembered means nothing was capped; "preferred" is what the
-        # config would have chosen anyway.
-        [[ -n $mode ]] || mode="preferred"
-        apply_json "$(printf '{"%s": {"mode": "%s", "position": "%s", "scale": %s}}' \
-            "$out" "$mode" \
-            "$(NB_CUR="$(current_state)" NB_OUT="$out" py <<'PY'
-import json, os
-print(json.loads(os.environ["NB_CUR"])[os.environ["NB_OUT"]]["position"])
-PY
-)" \
-            "$(NB_CUR="$(current_state)" NB_OUT="$out" py <<'PY'
-import json, os
-print(json.loads(os.environ["NB_CUR"])[os.environ["NB_OUT"]]["scale"])
-PY
-)")"
-        rm -f "$f"
+        local restore="$STATE_DIR/refresh-restore-$out" mode=""
+        [[ -r $restore ]] && mode="$(cat "$restore")"
+        # Nothing recorded means nothing was capped. Re-applying "preferred"
+        # would then override a mode the person had chosen themselves.
+        if [[ -z $mode ]]; then
+            printf '%s was not capped\n' "$out"
+            continue
+        fi
+        set_mode_only "$out" "$mode"
+        rm -f "$restore"
         printf 'uncapped %s to %s\n' "$out" "$mode"
     done < <(internal_outputs)
 }
@@ -618,24 +705,45 @@ cmd_generate() {
     mkdir -p "$(dirname "$GENERATED")"
     NB_STATE="$(read_state)" NB_FP="$fp" py <<'PY' > "$GENERATED.tmp"
 import json, os
+
 st = json.loads(os.environ["NB_STATE"])
 profs = st.get("profiles", {})
+fp = os.environ["NB_FP"]
+p = profs.get(fp)
+
 print("-- Generated by neobrix-monitors. Edits here are overwritten; change the")
 print("-- layout from the control centre's Displays tab, or with neobrix-monitors.")
 print("return function(_ctx)")
 print('    hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "auto" })')
-for fp, p in sorted(profs.items(), key=lambda kv: kv[1].get("name", "")):
+
+# Only the profile for the screens that were attached when this was written.
+#
+# Emitting every saved profile is what this used to do, and it is dangerous:
+# Hyprland applies monitor rules in order and the last match wins, so whichever
+# profile happened to sort last decided the layout no matter what was plugged
+# in. With a "laptop closed while docked" profile saved -- an ordinary thing to
+# want -- booting undocked would switch off the only screen there was, at config
+# parse time, leaving no desktop to undo it from.
+if p:
     print()
     print("    -- %s (%s)" % (p.get("name", "unnamed"), p.get("outputs_seen", "?")))
     for name, o in sorted(p.get("outputs", {}).items()):
         if o.get("disabled"):
-            print('    hl.monitor({ output = "%s", disabled = true })' % name)
-        else:
-            print('    hl.monitor({ output = "%s", mode = "%s", position = "%s", scale = %s,'
-                  ' transform = %d, vrr = %d, disabled = false, mirror = "%s" })' % (
-                  name, o.get("mode", "preferred"), o.get("position", "auto"),
-                  o.get("scale", 1), int(o.get("transform", 0)), int(o.get("vrr", 0)),
-                  o.get("mirror") or "none"))
+            # Deliberately not emitted. A screen switched off before login is a
+            # screen that cannot be switched back on without a working desktop,
+            # and this file is applied blind -- it cannot check what is actually
+            # connected. The shell turns it off after login instead, where the
+            # decision is reversible.
+            print("    -- %s is off in this profile; left on here so a mistake stays fixable" % name)
+            continue
+        print('    hl.monitor({ output = "%s", mode = "%s", position = "%s", scale = %s,'
+              ' transform = %d, vrr = %d, disabled = false, mirror = "%s" })' % (
+              name, o.get("mode", "preferred"), o.get("position", "auto"),
+              o.get("scale", 1), int(o.get("transform", 0)), int(o.get("vrr", 0)),
+              o.get("mirror") or "none"))
+else:
+    print()
+    print("    -- no profile saved for the screens attached when this was written")
 print("end")
 PY
     mv "$GENERATED.tmp" "$GENERATED"

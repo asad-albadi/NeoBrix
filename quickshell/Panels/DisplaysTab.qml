@@ -357,6 +357,7 @@ Item {
                                             ma.grabX = p.x - tile.x;
                                             ma.grabY = p.y - tile.y;
                                             ma.dragging = true;
+                                            Monitors.interacting = true;
                                         }
 
                                         onPositionChanged: mouse => {
@@ -368,12 +369,14 @@ Item {
 
                                         onCanceled: {
                                             ma.dragging = false;
+                                            Monitors.interacting = false;
                                             ma.rebind();
                                         }
 
                                         onReleased: mouse => {
                                             if (!ma.dragging) return;
                                             ma.dragging = false;
+                                            Monitors.interacting = false;
 
                                             const lx0 = canvas.toLogicalX(tile.x);
                                             const ly0 = canvas.toLogicalY(tile.y);
@@ -595,10 +598,7 @@ Item {
                             }
                             return out;
                         }
-                        value: root.current
-                               ? root.current.width + "x" + root.current.height + "@"
-                                 + (Math.round(root.current.refreshRate * 100) / 100)
-                               : undefined
+                        value: root.current ? Monitors.modeStringFor(root.current) : undefined
                         onPicked: v => Monitors.set(root.current.name, { mode: v })
                     }
 
@@ -700,8 +700,12 @@ Item {
                         }
 
                         BrixToggle {
+                            enabled: root.current !== null && !root.current.disabled
                             checked: root.current ? root.current.vrr : false
-                            onToggled: on => Monitors.set(root.current.name, { vrr: on ? 1 : 0 })
+                            onToggled: on => {
+                                if (!root.current || root.current.disabled) return;
+                                Monitors.set(root.current.name, { vrr: on ? 1 : 0 });
+                            }
                         }
                     }
 
@@ -738,8 +742,10 @@ Item {
                             enabled: root.current !== null
                                      && (root.current.disabled || root.enabledCount > 1)
                             checked: root.current ? !root.current.disabled : false
-                            onToggled: on => Monitors.set(root.current.name,
-                                                          { disabled: on ? "false" : "true" })
+                            onToggled: on => {
+                                if (!root.current) return;
+                                Monitors.set(root.current.name, { disabled: on ? "false" : "true" });
+                            }
                         }
                     }
                 }
