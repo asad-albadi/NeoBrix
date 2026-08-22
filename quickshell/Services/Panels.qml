@@ -29,7 +29,7 @@ Singleton {
     // machine has no battery or no bluetooth.
     property real popoverAnchorX: 0
     // Sub-view inside the control center.
-    readonly property var controlTabs: ["system", "connectivity", "notifications"]
+    readonly property var controlTabs: ["system", "connectivity", "displays", "notifications"]
     property string controlTab: "system"
 
     readonly property bool anyOpen: current !== ""

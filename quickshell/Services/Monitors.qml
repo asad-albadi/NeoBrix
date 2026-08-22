@@ -1,0 +1,369 @@
+pragma Singleton
+
+// Displays: what is connected, and changing it.
+//
+// Reading is free and needs no polling. Quickshell's Hyprland IPC keeps a live
+// model of monitors, and each one carries `lastIpcObject` -- the same blob
+// `hyprctl monitors` prints -- which is where the mode list, refresh rate,
+// transform, VRR and physical size come from. One caveat learnt the hard way
+// elsewhere in this shell: an object that arrived over the event socket can have
+// an empty lastIpcObject, so a monitor event asks for a refresh rather than
+// trusting what it was handed.
+//
+// Writing goes through neobrix-monitors, never through hyprctl directly. That
+// keeps one owner for the layout, gives the same behaviour from a terminal, and
+// means the revert timer that saves you from a black screen lives in a detached
+// process rather than in the shell that might be the thing that just died.
+
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Hyprland
+
+Singleton {
+    id: root
+
+    // ── reading ─────────────────────────────────────────────────────────────
+
+    readonly property var devices: Hyprland.monitors ? Hyprland.monitors.values : []
+
+    // Normalised, sorted left to right, with the ipc blob folded in.
+    readonly property var list: {
+        const out = [];
+        for (const m of root.devices) {
+            const ipc = m.lastIpcObject || {};
+            const scale = m.scale || ipc.scale || 1;
+            out.push({
+                name: m.name,
+                description: m.description || ipc.description || m.name,
+                focused: m.focused === true,
+                x: m.x, y: m.y,
+                width: m.width || ipc.width || 0,
+                height: m.height || ipc.height || 0,
+                scale: scale,
+                // What the layout actually occupies, which is the mode divided
+                // by the scale -- a 3840-wide panel at 2x is 1920 wide as far as
+                // positions are concerned.
+                logicalWidth: Math.round((m.width || ipc.width || 0) / scale),
+                logicalHeight: Math.round((m.height || ipc.height || 0) / scale),
+                refreshRate: ipc.refreshRate || 0,
+                modes: ipc.availableModes || [],
+                transform: ipc.transform || 0,
+                vrr: ipc.vrr === true,
+                disabled: ipc.disabled === true,
+                mirrorOf: ipc.mirrorOf && ipc.mirrorOf !== "none" ? ipc.mirrorOf : "",
+                physicalWidth: ipc.physicalWidth || 0,
+                physicalHeight: ipc.physicalHeight || 0,
+                make: ipc.make || "",
+                model: ipc.model || "",
+            });
+        }
+        for (const off of root.offlineList) {
+            let known = false;
+            for (const m of out) if (m.name === off.name) { known = true; break; }
+            if (!known) out.push(off);
+        }
+        out.sort((a, b) => a.x - b.x || a.y - b.y);
+        return out;
+    }
+
+    // Quickshell's model only carries *enabled* outputs, so a screen switched off
+    // disappears from it -- and a screen you cannot see is a screen you cannot
+    // switch back on. `hyprctl monitors all` lists the disabled ones too, and
+    // still reports their mode, scale and position, which is everything needed
+    // to show a row and offer it back. This is a read; writes still go through
+    // neobrix-monitors so there is one owner of the layout.
+    property var offlineList: []
+
+    Process {
+        id: allProc
+        command: ["hyprctl", "-j", "monitors", "all"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const off = [];
+                try {
+                    for (const m of JSON.parse(text)) {
+                        if (!m.disabled) continue;
+                        const scale = m.scale || 1;
+                        off.push({
+                            name: m.name,
+                            description: m.description || m.name,
+                            focused: false,
+                            x: m.x, y: m.y,
+                            width: m.width || 0, height: m.height || 0,
+                            scale: scale,
+                            logicalWidth: Math.round((m.width || 0) / scale),
+                            logicalHeight: Math.round((m.height || 0) / scale),
+                            refreshRate: m.refreshRate || 0,
+                            modes: m.availableModes || [],
+                            transform: m.transform || 0,
+                            vrr: m.vrr === true,
+                            disabled: true,
+                            mirrorOf: m.mirrorOf && m.mirrorOf !== "none" ? m.mirrorOf : "",
+                            physicalWidth: m.physicalWidth || 0,
+                            physicalHeight: m.physicalHeight || 0,
+                            make: m.make || "", model: m.model || "",
+                        });
+                    }
+                } catch (e) {}
+                root.offlineList = off;
+            }
+        }
+        stderr: StdioCollector {}
+    }
+
+    function refreshAll() { allProc.running = true; }
+
+    readonly property int count: root.list.length
+
+    function byName(name) {
+        for (const m of root.list) if (m.name === name) return m;
+        return null;
+    }
+
+    // Hotplug. Hyprland names these monitoradded/monitorremoved (and a v2
+    // variant); matching on the substring covers all of them without caring
+    // which spelling this version emits.
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (event && event.name && event.name.indexOf("monitor") !== -1) {
+                Hyprland.refreshMonitors();
+                root.refreshAll();
+                root.reloadProfiles();
+            }
+        }
+    }
+
+    // ── derived facts the panel shows ───────────────────────────────────────
+
+    // Hyprland refuses a scale that does not divide the mode into whole pixels
+    // ("failed to find a clean divisor"), so offering a free slider would mostly
+    // offer errors. These are the usual steps, filtered down to the ones this
+    // particular panel can actually take.
+    readonly property var scaleSteps: [1, 1.2, 1.25, 1.333333, 1.5, 1.6, 1.75, 2, 2.5, 3]
+
+    function validScales(width, height) {
+        const out = [];
+        for (const s of root.scaleSteps) {
+            const w = width / s, h = height / s;
+            if (Math.abs(w - Math.round(w)) < 0.001 && Math.abs(h - Math.round(h)) < 0.001)
+                out.push({ label: root.scaleLabel(s) + "  (" + Math.round(w) + "×" + Math.round(h) + ")",
+                           value: s });
+        }
+        if (out.length === 0) out.push({ label: "1  (" + width + "×" + height + ")", value: 1 });
+        return out;
+    }
+
+    function scaleLabel(s) {
+        const r = Math.round(s * 100) / 100;
+        return (r === Math.round(r) ? String(Math.round(r)) : String(r)) + "×";
+    }
+
+    // Physical size is in millimetres, so this is a real figure rather than a
+    // guess, and it is what makes a scale suggestion worth showing.
+    function dpiOf(m) {
+        if (!m || !m.physicalWidth) return 0;
+        return Math.round(m.width / (m.physicalWidth / 25.4));
+    }
+
+    function suggestedScale(m) {
+        const dpi = root.dpiOf(m);
+        if (!dpi) return 1;
+        // The thresholds are the conventional ones: a 96dpi-ish panel wants 1×,
+        // and every doubling of density wants another step.
+        if (dpi >= 250) return 2;
+        if (dpi >= 190) return 1.5;
+        if (dpi >= 150) return 1.25;
+        return 1;
+    }
+
+    readonly property var transformOptions: [
+        { label: "No rotation", value: 0 },
+        { label: "90° right",   value: 1 },
+        { label: "180°",        value: 2 },
+        { label: "90° left",    value: 3 },
+        { label: "Flipped",     value: 4 },
+        { label: "Flipped 90°", value: 5 },
+        { label: "Flipped 180°", value: 6 },
+        { label: "Flipped 270°", value: 7 },
+    ]
+
+    // ── profiles ────────────────────────────────────────────────────────────
+
+    property var profiles: []
+    property string fingerprint: ""
+
+    FileView {
+        id: stateFile
+        path: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state"))
+              + "/neobrix/monitors.json"
+        watchChanges: true
+        onFileChanged: reload()
+        onLoaded: root.parseProfiles(text())
+        onLoadFailed: root.profiles = []
+    }
+
+    function parseProfiles(raw) {
+        try {
+            const st = JSON.parse(raw);
+            const out = [];
+            for (const fp in st.profiles || {}) {
+                const p = st.profiles[fp];
+                out.push({ fingerprint: fp, name: p.name || fp,
+                           outputsSeen: p.outputs_seen || "", outputs: p.outputs || {} });
+            }
+            out.sort((a, b) => a.name.localeCompare(b.name));
+            root.profiles = out;
+        } catch (e) {
+            root.profiles = [];
+        }
+    }
+
+    function reloadProfiles() { stateFile.reload(); fingerprintProc.running = true; }
+
+    Process {
+        id: fingerprintProc
+        command: ["neobrix-monitors", "fingerprint"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: root.fingerprint = text.trim().split(/\s+/)[0] || ""
+        }
+        stderr: StdioCollector {}
+    }
+
+    // True when the current set of screens already has something saved, which is
+    // the difference between "Save" and "Update".
+    readonly property bool currentSetSaved: {
+        for (const p of root.profiles) if (p.fingerprint === root.fingerprint) return true;
+        return false;
+    }
+
+    // ── changing things ─────────────────────────────────────────────────────
+
+    // Seconds the panel counts down while a change is unconfirmed. The script
+    // runs its own timer of the same length and is the one that actually reverts;
+    // this is only what the countdown shows.
+    readonly property int revertWindow: 12
+
+    property bool pending: false
+    property int pendingSeconds: 0
+    property string lastError: ""
+
+    Timer {
+        id: countdown
+        interval: 1000
+        repeat: true
+        running: root.pending
+        onTriggered: {
+            root.pendingSeconds--;
+            // The script reverts on its own; when its window closes, stop
+            // claiming a change is still waiting.
+            if (root.pendingSeconds <= 0) root.pending = false;
+        }
+    }
+
+    function set(output, changes) {
+        const args = ["neobrix-monitors", "--revert-after", String(root.revertWindow), "set", output];
+        for (const k in changes) args.push(k + "=" + changes[k]);
+        root.runChange(args);
+    }
+
+    function applyProfile(name) {
+        root.runChange(["neobrix-monitors", "--revert-after", String(root.revertWindow),
+                        "apply", name]);
+    }
+
+    function runChange(args) {
+        root.lastError = "";
+        changeProc.command = args;
+        changeProc.running = true;
+        root.pending = true;
+        root.pendingSeconds = root.revertWindow;
+    }
+
+    Process {
+        id: changeProc
+        running: false
+        onExited: root.refreshAll()
+        stderr: StdioCollector {
+            onStreamFinished: {
+                if (text.trim() !== "") {
+                    root.lastError = text.trim().split("\n")[0];
+                    // A change that never applied has nothing to revert, and
+                    // leaving a countdown on screen for it reads as though
+                    // something happened.
+                    root.pending = false;
+                }
+            }
+        }
+    }
+
+    function confirm() {
+        root.pending = false;
+        confirmProc.running = true;
+    }
+
+    Process {
+        id: confirmProc
+        command: ["neobrix-monitors", "confirm"]
+        running: false
+        stderr: StdioCollector {}
+        onExited: {
+            root.refreshAll();
+            // Keeping a change is a statement about how these screens should be,
+            // so if this set of screens already has a profile, the profile
+            // becomes what was just kept. Without this "Keep" lasts until the
+            // next reboot and then the old profile puts it back, which is not
+            // what keeping something means. A set with nothing saved is left
+            // alone -- saving the first profile stays a deliberate act.
+            if (root.currentSetSaved) {
+                for (const p of root.profiles)
+                    if (p.fingerprint === root.fingerprint) { root.save(p.name); return; }
+            }
+            root.regenerate();
+        }
+    }
+
+    function revert() {
+        root.pending = false;
+        plainProc.command = ["neobrix-monitors", "revert"];
+        plainProc.running = true;
+    }
+
+    function save(name) {
+        saveProc.command = name && name !== "" ? ["neobrix-monitors", "save", name]
+                                               : ["neobrix-monitors", "save"];
+        saveProc.running = true;
+    }
+
+    function forget(name) {
+        forgetProc.command = ["neobrix-monitors", "forget", name];
+        forgetProc.running = true;
+    }
+
+    function regenerate() {
+        plainGenProc.running = true;
+    }
+
+    Process { id: plainProc; running: false; stderr: StdioCollector {} }
+    Process {
+        id: plainGenProc
+        command: ["neobrix-monitors", "generate"]
+        running: false
+        stderr: StdioCollector {}
+    }
+    Process {
+        id: saveProc
+        running: false
+        onExited: { root.reloadProfiles(); root.regenerate(); }
+        stderr: StdioCollector {}
+    }
+    Process {
+        id: forgetProc
+        running: false
+        onExited: { root.reloadProfiles(); root.regenerate(); }
+        stderr: StdioCollector {}
+    }
+}
