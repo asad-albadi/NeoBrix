@@ -16,3 +16,5 @@ cookies*
 
 # machine-specific hyprland overrides (Lua era)
 hypr/machine/local.lua
+# written by neobrix-monitors from the saved display profiles
+hypr/machine/monitors.lua

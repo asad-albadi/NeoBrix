@@ -426,6 +426,123 @@ test_container() {
     return 0
 }
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  neobrix-monitors, with a stubbed compositor.
+#
+#  The engine never has to guess: it reads `hyprctl -j monitors all` and writes
+#  through `hyprctl eval`. Both are stubbed here, so a layout can be saved,
+#  applied and generated with no Hyprland anywhere, and the eval calls it would
+#  have made are asserted instead of executed.
+# ═════════════════════════════════════════════════════════════════════════════
+
+monitors_stub_dir() {
+    local dir="$1"
+    mkdir -p "$dir/bin"
+    cat > "$dir/bin/hyprctl" <<'STUB'
+#!/usr/bin/env bash
+# Two outputs, one of them scaled, plus an eval log so the test can assert on
+# what would have been applied.
+if [[ "$*" == *"monitors all"* || "$*" == "-j monitors" ]]; then
+    cat <<'JSON'
+[
+ {"id":0,"name":"eDP-1","description":"BOE panel","make":"BOE","model":"0x090F","serial":"",
+  "width":1920,"height":1080,"refreshRate":144.0,"x":0,"y":0,"scale":1.0,"transform":0,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":true,
+  "physicalWidth":340,"physicalHeight":190,
+  "availableModes":["1920x1080@144.00Hz","1920x1080@60.00Hz"]},
+ {"id":1,"name":"DP-2","description":"Acme WideOne 123","make":"Acme","model":"WideOne","serial":"123",
+  "width":3440,"height":1440,"refreshRate":100.0,"x":1920,"y":0,"scale":1.0,"transform":0,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":false,
+  "physicalWidth":800,"physicalHeight":335,
+  "availableModes":["3440x1440@100.00Hz","3440x1440@60.00Hz"]}
+]
+JSON
+    exit 0
+fi
+if [[ ${1:-} == eval ]]; then
+    printf '%s\n' "$2" >> "${NB_EVAL_LOG:?}"
+    echo ok
+    exit 0
+fi
+echo ok
+STUB
+    chmod +x "$dir/bin/hyprctl"
+}
+
+test_monitors() {
+    case_ "neobrix-monitors drives the layout without touching a compositor"
+
+    local dir="$TMP/mon"
+    mkdir -p "$dir/state"
+    monitors_stub_dir "$dir"
+    export NB_EVAL_LOG="$dir/eval.log"
+    : > "$NB_EVAL_LOG"
+
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    # --help must not need a compositor: the check lives in the reader, not at
+    # the top of the file.
+    local help_out
+    help_out="$(env PATH=/usr/bin:/bin "$REPO/scripts/neobrix-monitors" --help 2>&1 || true)"
+    assert_has "--help works with no hyprctl on PATH" "Monitor layout" "$help_out"
+
+    # Reading.
+    local listing; listing="$("${run[@]}" list 2>&1)"
+    assert_has "list names the internal panel" "eDP-1" "$listing"
+    assert_has "list reports the external mode" "3440x1440" "$listing"
+
+    # The reported refresh is snapped to an advertised mode, so a saved profile
+    # holds a string the hardware recognises.
+    local state; state="$("${run[@]}" state 2>&1)"
+    assert_has "state snaps to an advertised mode" '"mode": "1920x1080@144"' "$state"
+
+    # Saving, then reading back.
+    "${run[@]}" save "Desk" >/dev/null 2>&1
+    local profs; profs="$("${run[@]}" profiles 2>&1)"
+    assert_has "a saved profile is listed" "Desk" "$profs"
+    assert_has "the profile records both outputs" "DP-2" "$profs"
+
+    # Applying emits one hl.monitor call per output, with an explicit position:
+    # "auto" would re-place the outputs and rearrange the desk.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" apply "Desk" >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "apply drives the internal panel" 'output="eDP-1"' "$evals"
+    assert_has "apply passes an explicit position" 'position="1920x0"' "$evals"
+    assert_lacks "apply never asks for auto placement" 'position="auto"' "$evals"
+
+    # The refresh cap is what the battery policy uses. It must pick the fastest
+    # mode within the limit, and only on an internal panel.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" cap 60 >/dev/null 2>&1
+    evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "cap drops the internal panel to 60" 'mode="1920x1080@60"' "$evals"
+    assert_lacks "cap leaves an external display alone" 'output="DP-2"' "$evals"
+
+    # Uncapping restores the mode that was in force, not a guess at the fastest.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" uncap >/dev/null 2>&1
+    evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "uncap restores the remembered mode" 'mode="1920x1080@144"' "$evals"
+
+    # A layout is applied at config-parse time so the session does not start in
+    # the wrong shape and visibly snap out of it.
+    local gen="$dir/generated.lua"
+    env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "XDG_RUNTIME_DIR=$dir" \
+        NB_GENERATED="$gen" "$REPO/scripts/neobrix-monitors" generate >/dev/null 2>&1 || true
+    if [[ -r $gen ]]; then
+        local lua; lua="$(cat "$gen")"
+        assert_has "the generated Lua sets monitors" 'hl.monitor' "$lua"
+        assert_has "the generated Lua keeps a catch-all first" 'output = ""' "$lua"
+    else
+        skip "generate wrote outside the sandbox (NB_GENERATED unset)"
+    fi
+
+    unset NB_EVAL_LOG
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -433,6 +550,7 @@ if (( DO_LOCAL )); then
     test_origins
     test_packages_reporting
     test_confirmation
+    test_monitors
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"

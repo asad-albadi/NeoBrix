@@ -6,7 +6,16 @@
 --
 --   hl.monitor({ output = "DP-1", mode = "2560x1440@165", position = "0x0", scale = 1 })
 
-return function(_ctx)
+return function(ctx)
+    -- A saved layout, if there is one. neobrix-monitors writes it from the
+    -- Displays tab; it is machine-local and gitignored, and it opens with the
+    -- same catch-all below so an output it does not mention still comes up.
+    local ok, saved = pcall(require, "machine.monitors")
+    if ok and type(saved) == "function" then
+        saved(ctx)
+        return
+    end
+
     hl.monitor({
         output   = "",
         mode     = "preferred",
