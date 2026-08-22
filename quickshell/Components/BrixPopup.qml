@@ -168,6 +168,23 @@ PanelWindow {
         Behavior on opacity { NumberAnimation { duration: Theme.durNormal; easing.type: Theme.easing } }
         Behavior on scale { NumberAnimation { duration: Theme.durNormal; easing.type: Theme.easing } }
 
+        // Everything inside the panel belongs to the panel.
+        //
+        // Only interactive items consume mouse events, so a click on a card, a
+        // heading, or the gap between two controls fell straight through to the
+        // scrim below and dismissed the window. That made the panel feel like it
+        // closed at random, and made dragging, typing or picking from a list a
+        // matter of hitting exactly the right pixel.
+        //
+        // Declared before `body`, so it sits underneath it: real controls still
+        // get the event first, and this catches only what nothing else wanted.
+        // Wheel events are untouched -- MouseArea does not handle them -- so
+        // lists inside the panel still scroll.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+        }
+
         Item {
             id: body
             anchors.fill: parent
