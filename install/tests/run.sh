@@ -426,6 +426,340 @@ test_container() {
     return 0
 }
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  neobrix-monitors, with a stubbed compositor.
+#
+#  The engine never has to guess: it reads `hyprctl -j monitors all` and writes
+#  through `hyprctl eval`. Both are stubbed here, so a layout can be saved,
+#  applied and generated with no Hyprland anywhere, and the eval calls it would
+#  have made are asserted instead of executed.
+# ═════════════════════════════════════════════════════════════════════════════
+
+monitors_stub_dir() {
+    local dir="$1"
+    mkdir -p "$dir/bin"
+    cat > "$dir/bin/hyprctl" <<'STUB'
+#!/usr/bin/env bash
+# Two outputs, one of them scaled, plus an eval log so the test can assert on
+# what would have been applied.
+if [[ "$*" == *"monitors all"* || "$*" == "-j monitors" ]]; then
+    cat <<'JSON'
+[
+ {"id":0,"name":"eDP-1","description":"BOE panel","make":"BOE","model":"0x090F","serial":"",
+  "width":1920,"height":1080,"refreshRate":144.0,"x":0,"y":0,"scale":1.0,"transform":0,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":true,
+  "physicalWidth":340,"physicalHeight":190,
+  "availableModes":["1920x1080@144.00Hz","1920x1080@60.00Hz"]},
+ {"id":1,"name":"DP-2","description":"Acme WideOne 123","make":"Acme","model":"WideOne","serial":"123",
+  "width":3440,"height":1440,"refreshRate":100.0,"x":1920,"y":0,"scale":1.0,"transform":0,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":false,
+  "physicalWidth":800,"physicalHeight":335,
+  "availableModes":["3440x1440@100.00Hz","3440x1440@60.00Hz"]}
+]
+JSON
+    exit 0
+fi
+if [[ ${1:-} == eval ]]; then
+    printf '%s\n' "$2" >> "${NB_EVAL_LOG:?}"
+    echo ok
+    exit 0
+fi
+echo ok
+STUB
+    chmod +x "$dir/bin/hyprctl"
+}
+
+test_monitors() {
+    case_ "neobrix-monitors drives the layout without touching a compositor"
+
+    local dir="$TMP/mon"
+    mkdir -p "$dir/state"
+    monitors_stub_dir "$dir"
+    export NB_EVAL_LOG="$dir/eval.log"
+    : > "$NB_EVAL_LOG"
+
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    # --help must not need a compositor: the check lives in the reader, not at
+    # the top of the file.
+    local help_out
+    help_out="$(env PATH=/usr/bin:/bin "$REPO/scripts/neobrix-monitors" --help 2>&1 || true)"
+    assert_has "--help works with no hyprctl on PATH" "Monitor layout" "$help_out"
+
+    # Reading.
+    local listing; listing="$("${run[@]}" list 2>&1)"
+    assert_has "list names the internal panel" "eDP-1" "$listing"
+    assert_has "list reports the external mode" "3440x1440" "$listing"
+
+    # The reported refresh is snapped to an advertised mode, so a saved profile
+    # holds a string the hardware recognises.
+    local state; state="$("${run[@]}" state 2>&1)"
+    assert_has "state snaps to an advertised mode" '"mode": "1920x1080@144"' "$state"
+
+    # Saving, then reading back.
+    "${run[@]}" save "Desk" >/dev/null 2>&1
+    local profs; profs="$("${run[@]}" profiles 2>&1)"
+    assert_has "a saved profile is listed" "Desk" "$profs"
+    assert_has "the profile records both outputs" "DP-2" "$profs"
+
+    # Applying emits one hl.monitor call per output, with an explicit position:
+    # "auto" would re-place the outputs and rearrange the desk.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" apply "Desk" >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "apply drives the internal panel" 'output="eDP-1"' "$evals"
+    assert_has "apply passes an explicit position" 'position="1920x0"' "$evals"
+    assert_lacks "apply never asks for auto placement" 'position="auto"' "$evals"
+
+    # The refresh cap is what the battery policy uses. It must pick the fastest
+    # mode within the limit, and only on an internal panel.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" cap 60 >/dev/null 2>&1
+    evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "cap drops the internal panel to 60" 'mode="1920x1080@60"' "$evals"
+    assert_lacks "cap leaves an external display alone" 'output="DP-2"' "$evals"
+
+    # Uncapping restores the mode that was in force, not a guess at the fastest.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" uncap >/dev/null 2>&1
+    evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "uncap restores the remembered mode" 'mode="1920x1080@144"' "$evals"
+
+    # A layout is applied at config-parse time so the session does not start in
+    # the wrong shape and visibly snap out of it.
+    local gen="$dir/generated.lua"
+    env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "XDG_RUNTIME_DIR=$dir" \
+        NB_GENERATED="$gen" "$REPO/scripts/neobrix-monitors" generate >/dev/null 2>&1 || true
+    if [[ -r $gen ]]; then
+        local lua; lua="$(cat "$gen")"
+        assert_has "the generated Lua sets monitors" 'hl.monitor' "$lua"
+        assert_has "the generated Lua keeps a catch-all first" 'output = ""' "$lua"
+    else
+        skip "generate wrote outside the sandbox (NB_GENERATED unset)"
+    fi
+
+    unset NB_EVAL_LOG
+}
+
+test_monitors_rotation() {
+    case_ "a rotated screen occupies its mode turned on its side"
+
+    local dir="$TMP/rot"
+    mkdir -p "$dir/bin" "$dir/state"
+    # DP-1 is rotated: 2560x1440 reported, 1440x2560 occupied. HDMI sits where a
+    # layout built before the rotation would have left it -- 1920 + 2560 -- which
+    # is 1120px past the rotated panel's real right edge. That gap is dead space
+    # the pointer cannot cross, and it is the bug this covers.
+    cat > "$dir/bin/hyprctl" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == *"monitors all"* || "$*" == "-j monitors" ]]; then
+    cat <<'JSON'
+[
+ {"id":0,"name":"eDP-1","description":"BOE panel","make":"BOE","model":"x","serial":"",
+  "width":1920,"height":1080,"refreshRate":60.0,"x":0,"y":0,"scale":1.0,"transform":0,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":false,
+  "physicalWidth":340,"physicalHeight":190,"availableModes":["1920x1080@60.00Hz"]},
+ {"id":1,"name":"DP-1","description":"Acme Tall 1","make":"Acme","model":"Tall","serial":"1",
+  "width":2560,"height":1440,"refreshRate":144.0,"x":1920,"y":0,"scale":1.0,"transform":1,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":true,
+  "physicalWidth":600,"physicalHeight":340,"availableModes":["2560x1440@144.00Hz"]},
+ {"id":2,"name":"HDMI-A-2","description":"Acme Wide 2","make":"Acme","model":"Wide","serial":"2",
+  "width":3440,"height":1440,"refreshRate":100.0,"x":4480,"y":0,"scale":1.0,"transform":0,
+  "vrr":false,"disabled":false,"mirrorOf":"none","focused":false,
+  "physicalWidth":800,"physicalHeight":335,"availableModes":["3440x1440@100.00Hz"]}
+]
+JSON
+    exit 0
+fi
+if [[ ${1:-} == eval ]]; then printf '%s\n' "$2" >> "${NB_EVAL_LOG:?}"; echo ok; exit 0; fi
+echo ok
+STUB
+    chmod +x "$dir/bin/hyprctl"
+    export NB_EVAL_LOG="$dir/eval.log"
+    : > "$NB_EVAL_LOG"
+
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    local listing; listing="$("${run[@]}" list 2>&1)"
+    assert_has "list marks the rotation" "rot90" "$listing"
+
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" arrange >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+
+    # 1920 + 1440 = 3360, using the rotated footprint. Packing on the reported
+    # 2560 would put it back at 4480 and leave the gap in place.
+    assert_has "arrange packs against the rotated width" 'position="3360x0"' "$evals"
+    assert_lacks "arrange does not use the unrotated width" 'position="4480x0"' "$evals"
+    # The rotation itself must survive being re-applied.
+    assert_has "arrange preserves the transform" "transform=1" "$evals"
+
+    # Dropping a screen to the left of the leftmost one is a negative
+    # coordinate. It has to be accepted -- clamping it to zero turns "put it on
+    # the left" into "overlap what is already there" -- and then the whole layout
+    # is shifted back so the corner sits at 0,0.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" place DP-1 -1440x0 >/dev/null 2>&1
+    evals="$(cat "$NB_EVAL_LOG")"
+    assert_lacks "place leaves nothing at a negative coordinate" 'position="-' "$evals"
+    assert_has "place puts the moved screen at the origin" 'output="DP-1", mode="2560x1440@144", position="0x0"' "$evals"
+    # eDP-1 was at 0 and everything shifted right by the 1440 the rotated panel
+    # occupies, so it lands at 1440 rather than staying put.
+    assert_has "place shifts the others to keep the corner at 0,0" 'output="eDP-1", mode="1920x1080@60", position="1440x0"' "$evals"
+
+    unset NB_EVAL_LOG
+}
+
+test_monitors_place_guard() {
+    case_ "a screen that is off cannot be placed, but can be switched on"
+
+    local dir="$TMP/mon"          # reuses the stub from test_monitors
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+    export NB_EVAL_LOG="$dir/eval.log"
+
+    # The stub reports everything enabled, so disable one through the tool and
+    # then try to move it.
+    : > "$NB_EVAL_LOG"
+    local out ec
+    out="$("${run[@]}" place NOPE 0x0 2>&1)"; ec=$?
+    assert_has "place rejects an unknown output" "no output named" "$out"
+    [[ $ec -ne 0 ]] && ok "place fails loudly on an unknown output" \
+                    || bad "place fails loudly on an unknown output"
+
+    # And the guard that matters: it must live in place, not in set. `set
+    # disabled=false` is the only way back from a dark screen, and a guard in the
+    # wrong function once made that unrecoverable.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" set eDP-1 disabled=false >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "set can still switch a screen on" 'disabled=false' "$evals"
+
+    unset NB_EVAL_LOG
+}
+
+test_monitors_hazards() {
+    case_ "the ways this could take the screen away, or lose the profiles"
+
+    local dir="$TMP/haz"
+    mkdir -p "$dir/bin" "$dir/state"
+    cp "$TMP/mon/bin/hyprctl" "$dir/bin/hyprctl"
+    export NB_EVAL_LOG="$dir/eval.log"
+    : > "$NB_EVAL_LOG"
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    # Two profiles for the same screens, one of which switches a screen off --
+    # "laptop closed while docked" is an ordinary thing to save. Hyprland applies
+    # monitor rules in order and the last match wins, so emitting every profile
+    # let whichever sorted last decide, and a stray `disabled = true` at config
+    # parse time is a black screen with no desktop left to undo it from.
+    "${run[@]}" save "Alone" >/dev/null 2>&1
+    "${run[@]}" set eDP-1 disabled=true >/dev/null 2>&1
+    "${run[@]}" save "Zzz docked" >/dev/null 2>&1
+
+    local gen="$dir/gen.lua"
+    env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "XDG_RUNTIME_DIR=$dir" \
+        NB_GENERATED="$gen" "$REPO/scripts/neobrix-monitors" generate >/dev/null 2>&1
+    local lua; lua="$(cat "$gen" 2>/dev/null)"
+    assert_lacks "generate never switches a screen off at startup" "disabled = true" "$lua"
+    assert_eq "generate emits one profile, not every profile" "1" \
+              "$(printf '%s\n' "$lua" | grep -c -- '^    -- .*(' || true)"
+
+    # A failed producer must not replace the state file. It used to `mv` an empty
+    # file over it, losing every profile -- and then nothing could read it again.
+    printf 'not json at all' > "$dir/state/neobrix/monitors.json"
+    local before; before="$(cat "$dir/state/neobrix/monitors.json")"
+    "${run[@]}" profiles >/dev/null 2>&1
+    assert_eq "invalid state is ignored, not overwritten" "$before" \
+              "$(cat "$dir/state/neobrix/monitors.json")"
+    local out; out="$("${run[@]}" save "Recovered" 2>&1)"
+    assert_has "a profile can still be saved afterwards" "saved" "$out"
+    assert_has "and the state file is valid again" "Recovered" "$("${run[@]}" profiles 2>&1)"
+
+    unset NB_EVAL_LOG
+}
+
+test_monitors_cap_preserves() {
+    case_ "capping the refresh keeps every other setting"
+
+    local dir="$TMP/rot"      # the stub with a rotated panel
+    mkdir -p "$dir/state2"
+    export NB_EVAL_LOG="$dir/eval2.log"
+    : > "$NB_EVAL_LOG"
+    # eDP-1 in this stub is unrotated, so rotate it through the tool first and
+    # then cap: the cap must not quietly undo the rotation.
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state2"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" cap 60 >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+    # The stub's eDP-1 advertises only 60Hz, so there is nothing to cap and
+    # nothing should be emitted at all -- capping to the mode already in force
+    # would still have rewritten transform and vrr.
+    assert_lacks "cap does nothing when the panel is already at the limit" 'output="eDP-1"' "$evals"
+
+    # And on the panel that does have a faster mode, the fields come along.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" set eDP-1 vrr=1 >/dev/null 2>&1
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" uncap >/dev/null 2>&1
+    evals="$(cat "$NB_EVAL_LOG")"
+    assert_lacks "uncap does nothing when nothing was capped" 'output="eDP-1"' "$evals"
+
+    unset NB_EVAL_LOG
+}
+
+test_monitors_layout() {
+    case_ "a staged layout applies as one change"
+
+    local dir="$TMP/lay"
+    mkdir -p "$dir/bin" "$dir/state"
+    cp "$TMP/rot/bin/hyprctl" "$dir/bin/hyprctl"     # includes a rotated panel
+    export NB_EVAL_LOG="$dir/eval.log"
+    : > "$NB_EVAL_LOG"
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    # Several changes at once, and only the fields named. Everything else has to
+    # survive: a partial spec used to let apply_json's defaults un-rotate a
+    # rotated screen.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" layout '{"eDP-1":{"scale":1},"DP-1":{"vrr":1}}' >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "layout drives every named output" 'output="eDP-1"' "$evals"
+    assert_has "layout drives the other one too" 'output="DP-1"' "$evals"
+    assert_has "an unnamed field is preserved" "transform=1" "$evals"
+    assert_has "and the field that changed is set" "vrr=1" "$evals"
+
+    # "false" is a truthy string, and treating it as one would switch a screen
+    # off while claiming to switch it on.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" layout '{"DP-1":{"disabled":"false"}}' >/dev/null 2>&1
+    assert_has "a stringy false does not disable" "disabled=false" "$(cat "$NB_EVAL_LOG")"
+
+    # A drop to the left is negative and must be accepted, then shifted back.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" layout '{"eDP-1":{"position":"-1920x0"}}' >/dev/null 2>&1
+    assert_lacks "layout leaves nothing negative" 'position="-' "$(cat "$NB_EVAL_LOG")"
+
+    # But a layout that legitimately starts away from the origin is left alone:
+    # forcing the corner to 0,0 moved screens nobody had touched.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" layout '{"DP-1":{"vrr":0}}' >/dev/null 2>&1
+    assert_has "a non-position change moves nothing" 'output="eDP-1", mode="1920x1080@60", position="0x0"' \
+               "$(cat "$NB_EVAL_LOG")"
+
+    local out; out="$("${run[@]}" layout '{"DP-1":{"bogus":1}}' 2>&1)"
+    assert_has "layout rejects a field it cannot set" "cannot set bogus" "$out"
+
+    unset NB_EVAL_LOG
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -433,6 +767,12 @@ if (( DO_LOCAL )); then
     test_origins
     test_packages_reporting
     test_confirmation
+    test_monitors
+    test_monitors_rotation
+    test_monitors_place_guard
+    test_monitors_hazards
+    test_monitors_cap_preserves
+    test_monitors_layout
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"

@@ -18,9 +18,10 @@
 #      when it goes in, so a deliberate choice survives a trip to the sofa.
 #
 #    * The internal panel's refresh rate. 60 Hz rather than 144 Hz saves 0.31 W
-#      and halves Hyprland's idle CPU (1.42% to 0.67%). Only outputs whose name
-#      starts eDP are touched, and only their mode -- an external display is
-#      somebody's deliberate desk setup and is left exactly as it is.
+#      and halves Hyprland's idle CPU (1.42% to 0.67%). The work is handed to
+#      neobrix-monitors, which owns monitor state -- it caps only outputs named
+#      eDP*, leaves an external display alone, and remembers the mode it replaced
+#      so plugging back in restores what you chose rather than a guess.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -42,39 +43,19 @@ set_profile() {
 
 current_profile() { have powerprofilesctl && powerprofilesctl get 2>/dev/null || echo ""; }
 
-# Only the mode is rewritten. Position and scale are read back from the running
-# configuration and passed through unchanged, because "auto" would re-place the
-# output and rearrange a multi-monitor desk.
-set_internal_mode() {
-    local want=$1
-    have hyprctl || return 0
-    NB_WANT="$want" python3 - <<'PY'
-import json, os, subprocess, sys
+# The refresh rate is monitor state, and monitor state has one owner:
+# neobrix-monitors. It knows which outputs are internal, which rates the panel
+# actually advertises, and what the mode was before the cap so uncapping restores
+# it rather than guessing. Missing (a partial install) is not fatal -- the
+# profile change is still worth doing on its own.
+refresh_cap() {
+    have neobrix-monitors || return 0
+    neobrix-monitors cap "$1" >/dev/null 2>&1 || true
+}
 
-want = os.environ["NB_WANT"]
-try:
-    out = subprocess.run(["hyprctl", "-j", "monitors"],
-                         capture_output=True, text=True, check=True).stdout
-    monitors = json.loads(out)
-except Exception:
-    sys.exit(0)
-
-for m in monitors:
-    if not m["name"].startswith("eDP"):
-        continue
-    if want == "preferred":
-        mode = "preferred"
-    else:
-        # Only ask for a rate the panel actually advertises at this resolution.
-        target = "{}x{}@{}".format(m["width"], m["height"], want)
-        if not any(am.startswith(target) for am in m.get("availableModes", [])):
-            continue
-        mode = target
-    spec = 'hl.monitor({{output="{}", mode="{}", position="{}x{}", scale={}}})'.format(
-        m["name"], mode, m["x"], m["y"], m["scale"])
-    subprocess.run(["hyprctl", "eval", spec],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-PY
+refresh_uncap() {
+    have neobrix-monitors || return 0
+    neobrix-monitors uncap >/dev/null 2>&1 || true
 }
 
 apply_battery() {
@@ -84,7 +65,7 @@ apply_battery() {
     # as the thing to go back to.
     [[ -n $now && $now != power-saver ]] && printf '%s' "$now" > "$PROFILE_STATE"
     set_profile power-saver
-    set_internal_mode 60
+    refresh_cap 60
     echo "battery policy: power-saver, internal panel 60Hz"
 }
 
@@ -92,7 +73,7 @@ apply_mains() {
     local back=balanced
     [[ -r $PROFILE_STATE ]] && back=$(cat "$PROFILE_STATE")
     set_profile "$back"
-    set_internal_mode preferred
+    refresh_uncap
     echo "mains policy: $back, internal panel at its preferred mode"
 }
 
@@ -103,17 +84,8 @@ case ${1:-auto} in
     status)
         printf 'source:  %s\n' "$(neobrix_on_battery && echo battery || echo mains)"
         printf 'profile: %s\n' "$(current_profile)"
-        have hyprctl && python3 - <<'PY'
-import json, subprocess
-try:
-    out = subprocess.run(["hyprctl", "-j", "monitors"],
-                         capture_output=True, text=True, check=True).stdout
-except Exception:
-    raise SystemExit(0)
-for m in json.loads(out):
-    print("{:<10} {}x{}@{:.0f}".format(
-        m["name"], m["width"], m["height"], m["refreshRate"]))
-PY
+        # Monitors are neobrix-monitors' business, including printing them.
+        have neobrix-monitors && neobrix-monitors list
         ;;
     *) sed -n '2,10p' "$(readlink -f "$0")" | sed 's/^# \?//'; exit 1 ;;
 esac

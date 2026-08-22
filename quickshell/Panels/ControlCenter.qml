@@ -82,6 +82,16 @@ BrixPopup {
                 }
 
                 BrixButton {
+                    text: "DISPLAYS"
+                    icon: "󰍹"
+                    fontSize: Theme.fontSm
+                    active: Panels.controlTab === "displays"
+                    activeAccent: Theme.tertiary
+                    accent: Theme.surface
+                    onClicked: Panels.controlTab = "displays"
+                }
+
+                BrixButton {
                     text: "NOTIFICATIONS"
                     icon: Notifs.count > 0 ? "󱅫" : "󰂚"
                     fontSize: Theme.fontSm
@@ -132,6 +142,12 @@ BrixPopup {
                 ConnectivityTab {
                     anchors.fill: parent
                     visible: Panels.controlTab === "connectivity"
+                    active: root.open && visible
+                }
+
+                DisplaysTab {
+                    anchors.fill: parent
+                    visible: Panels.controlTab === "displays"
                     active: root.open && visible
                 }
 

@@ -1,0 +1,873 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Monitor layout: read it, change it, remember it.
+#
+#      neobrix-monitors list                    what is connected, as a table
+#      neobrix-monitors state                   the same thing as JSON
+#      neobrix-monitors fingerprint             the key this set of outputs saves under
+#
+#      neobrix-monitors set OUTPUT KEY=VAL ...  change one output
+#      neobrix-monitors apply [profile]         apply a saved profile
+#      neobrix-monitors save [name]             save the current layout as a profile
+#      neobrix-monitors profiles                list saved profiles
+#      neobrix-monitors forget <name>           delete a profile
+#
+#      neobrix-monitors confirm                 keep a pending change
+#      neobrix-monitors revert                  undo a pending change
+#      neobrix-monitors generate                write the Lua applied at startup
+#      neobrix-monitors place OUTPUT XxY        move one screen, keeping 0,0 at top-left
+#      neobrix-monitors layout JSON             apply several changes together
+#      neobrix-monitors arrange                 pack the screens edge to edge
+#      neobrix-monitors cap <hz>                cap the internal panel's refresh
+#      neobrix-monitors uncap                   put the internal panel back
+#
+#  Options for `set` and `apply`:
+#      --revert-after N   snapshot first and put it back after N seconds unless
+#                         `confirm` arrives. A mode a monitor cannot display
+#                         leaves a black screen, and a black screen cannot be
+#                         clicked out of, so anything driven from the GUI goes
+#                         through this. The watcher is detached: it restores the
+#                         display even if the shell that asked for the change
+#                         dies in the middle of it.
+#
+#  Why hyprctl eval rather than hyprctl keyword: Neobrix runs a Lua config, and
+#  `hyprctl keyword` refuses to work with a non-legacy parser -- it says so and
+#  changes nothing. hl.monitor takes these fields, all confirmed by probing the
+#  running compositor (it rejects a field it does not know, which is how the
+#  list was established):
+#
+#      output mode position scale transform vrr bitdepth disabled mirror
+#      cm sdrbrightness sdrsaturation supports_wide_color supports_hdr reserved
+#
+#  State lives outside the repository, in $XDG_STATE_HOME/neobrix/monitors.json.
+#  The generated Lua is the one thing written inside it, at hypr/machine/, which
+#  is where machine-local Hyprland config already goes and is gitignored.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+REPO="$(dirname "$HERE")"
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/neobrix"
+STATE="$STATE_DIR/monitors.json"
+PENDING_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+PENDING="$PENDING_DIR/neobrix-monitors-pending.json"
+# Overridable so the tests can generate into a sandbox instead of the checkout.
+GENERATED="${NB_GENERATED:-$REPO/hypr/machine/monitors.lua}"
+
+REVERT_AFTER=0
+
+die() { printf 'neobrix-monitors: %s\n' "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+have python3 || die "python3 not found"
+
+# `monitors all` rather than `monitors`: a disabled output still has to appear in
+# the list, or there is no way to switch it back on.
+#
+# The hyprctl check lives here rather than at the top of the file so that --help
+# and anything that only touches the state file still work without a running
+# compositor -- which is also what makes the engine testable offline.
+raw() {
+    have hyprctl || die "hyprctl not found; this needs a running Hyprland"
+    hyprctl -j monitors all
+}
+
+py() { python3 - "$@"; }
+
+# ── reading ──────────────────────────────────────────────────────────────────
+
+# The saved shape of one output. Deliberately not every field hl.monitor takes:
+# these are the ones a person changes, and writing back a field we never show is
+# how a layout ends up carrying settings nobody chose.
+current_state() {
+    NB_MONS="$(raw)" py <<'PY'
+import json, os
+mons = json.loads(os.environ["NB_MONS"])
+def mode_of(m):
+    """The advertised mode this output is actually running.
+
+    The reported rate is the real one to three decimals (60.003, 143.981), which
+    is not what the mode list calls it and not what hl.monitor should be handed
+    back. Snap to the closest advertised mode at the same resolution so a saved
+    profile contains a string the hardware recognises.
+    """
+    want = m.get("refreshRate", 0)
+    best, best_d = None, None
+    for am in m.get("availableModes") or []:
+        try:
+            res, _, hz = am.partition("@")
+            w, _, h = res.partition("x")
+            hz = float(hz.rstrip("Hz"))
+            if int(w) != m["width"] or int(h) != m["height"]:
+                continue
+        except ValueError:
+            continue
+        d = abs(hz - want)
+        if best_d is None or d < best_d:
+            best, best_d = (int(w), int(h), hz), d
+    if best and best_d is not None and best_d < 1.5:
+        return "{}x{}@{:g}".format(best[0], best[1], round(best[2], 2))
+    return "{}x{}@{:g}".format(m["width"], m["height"], round(want, 2))
+
+out = {}
+for m in mons:
+    out[m["name"]] = {
+        "mode": mode_of(m),
+        "position": "{}x{}".format(m["x"], m["y"]),
+        "scale": round(m["scale"], 6),
+        "transform": m.get("transform", 0),
+        "vrr": 1 if m.get("vrr") else 0,
+        "disabled": bool(m.get("disabled", False)),
+        "mirror": m.get("mirrorOf") or "none",
+    }
+print(json.dumps(out, indent=2, sort_keys=True))
+PY
+}
+
+# Identity of the *set* of outputs, so a layout comes back when the same screens
+# do. Description carries make/model/serial; a laptop panel often has an empty
+# serial, and two identical external monitors are genuinely indistinguishable by
+# anything but the connector they are in, so the connector name is part of the
+# key. That means moving the same monitor to a different port is a different
+# profile -- correct, since the layout would be different anyway.
+fingerprint() {
+    NB_MONS="$(raw)" py <<'PY'
+import hashlib, json, os
+mons = json.loads(os.environ["NB_MONS"])
+parts = sorted("{}|{}".format(m["name"], m.get("description") or m["name"]) for m in mons)
+print(hashlib.sha1("\n".join(parts).encode()).hexdigest()[:12])
+PY
+}
+
+outputs_seen() {
+    NB_MONS="$(raw)" py <<'PY'
+import json, os
+mons = json.loads(os.environ["NB_MONS"])
+print(", ".join(sorted(m["name"] for m in mons)))
+PY
+}
+
+cmd_list() {
+    NB_MONS="$(raw)" py <<'PY'
+import json, os, signal
+# Die quietly when the reader goes away, the way any other command does --
+# `neobrix-monitors list | head` should not print a traceback.
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+mons = json.loads(os.environ["NB_MONS"])
+if not mons:
+    print("no outputs")
+    raise SystemExit(0)
+w = max(len(m["name"]) for m in mons)
+for m in sorted(mons, key=lambda m: (m["x"], m["y"])):
+    flags = []
+    if m.get("disabled"): flags.append("off")
+    # 4-7 are flips, not further rotations: transform 4 is flipped-unrotated and
+    # 5 is flipped-90, so multiplying by 90 called a flipped screen "rot0" and
+    # made it indistinguishable from an ordinary 90.
+    if m.get("transform"):
+        t = m["transform"]
+        flags.append(("rot90", "rot180", "rot270", "flip", "flip90", "flip180", "flip270")[t - 1]
+                     if 1 <= t <= 7 else "transform" + str(t))
+    if m.get("vrr"): flags.append("vrr")
+    if (m.get("mirrorOf") or "none") != "none": flags.append("mirror of " + m["mirrorOf"])
+    if m.get("focused"): flags.append("focused")
+    print("{name:<{w}}  {ww}x{hh}@{hz:<6.6g} scale {sc:<5.6g} at {x},{y}  {fl}".format(
+        name=m["name"], w=w, ww=m["width"], hh=m["height"], hz=round(m["refreshRate"], 2),
+        sc=m["scale"], x=m["x"], y=m["y"], fl="  ".join(flags)))
+    modes = m.get("availableModes") or []
+    if modes:
+        print("{pad}  modes: {modes}".format(pad=" " * w, modes=", ".join(modes[:6])
+              + (" (+{} more)".format(len(modes) - 6) if len(modes) > 6 else "")))
+PY
+}
+
+# ── the state file ───────────────────────────────────────────────────────────
+
+valid_json() { python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$1" 2>/dev/null; }
+
+read_state() {
+    if [[ -r $STATE ]] && valid_json "$STATE"; then
+        cat "$STATE"
+    else
+        [[ -s ${STATE:-} ]] && printf 'neobrix-monitors: %s is not valid JSON; ignoring it\n' "$STATE" >&2
+        printf '{"version": 1, "profiles": {}}'
+    fi
+}
+
+# The producer is a pipeline, and a pipeline that dies still closes its end of
+# the pipe -- so this used to `mv` an empty file over the state and delete every
+# saved profile, after which nothing could read it again either.
+write_state() {
+    mkdir -p "$STATE_DIR"
+    local tmp="$STATE.tmp.$$"
+    cat > "$tmp"
+    if ! valid_json "$tmp"; then
+        rm -f "$tmp"
+        die "refusing to write an invalid state file; $STATE is unchanged"
+    fi
+    mv "$tmp" "$STATE"
+}
+
+cmd_profiles() {
+    NB_STATE="$(read_state)" py <<'PY'
+import json, os
+st = json.loads(os.environ["NB_STATE"])
+profs = st.get("profiles", {})
+if not profs:
+    print("no saved profiles")
+    raise SystemExit(0)
+for fp, p in sorted(profs.items(), key=lambda kv: kv[1].get("name", "")):
+    print("{}  [{}]".format(p.get("name", "(unnamed)"), fp))
+    print("     outputs: {}".format(p.get("outputs_seen", "?")))
+    for name, o in sorted(p.get("outputs", {}).items()):
+        print("       {:<12} {} scale {} at {}{}".format(
+            name, o.get("mode", "?"), o.get("scale", "?"), o.get("position", "?"),
+            "  (off)" if o.get("disabled") else ""))
+PY
+}
+
+cmd_save() {
+    local name="${1:-}" fp; fp="$(fingerprint)"
+    [[ -n $name ]] || name="$(outputs_seen)"
+    NB_STATE="$(read_state)" NB_FP="$fp" NB_NAME="$name" NB_SEEN="$(outputs_seen)" \
+        NB_OUTPUTS="$(current_state)" py <<'PY' | write_state
+import json, os
+st = json.loads(os.environ["NB_STATE"])
+st.setdefault("version", 1)
+st.setdefault("profiles", {})
+st["profiles"][os.environ["NB_FP"]] = {
+    "name": os.environ["NB_NAME"],
+    "outputs_seen": os.environ["NB_SEEN"],
+    "outputs": json.loads(os.environ["NB_OUTPUTS"]),
+}
+print(json.dumps(st, indent=2, sort_keys=True))
+PY
+    printf 'saved "%s" for %s [%s]\n' "$name" "$(outputs_seen)" "$fp"
+}
+
+cmd_forget() {
+    local name="${1:?a profile name or fingerprint}"
+    NB_STATE="$(read_state)" NB_WANT="$name" py <<'PY' | write_state
+import json, os, sys
+st = json.loads(os.environ["NB_STATE"])
+want = os.environ["NB_WANT"]
+profs = st.get("profiles", {})
+gone = [fp for fp, p in profs.items() if fp == want or p.get("name") == want]
+for fp in gone:
+    del profs[fp]
+if not gone:
+    sys.stderr.write("neobrix-monitors: no profile matched %r\n" % want)
+print(json.dumps(st, indent=2, sort_keys=True))
+PY
+}
+
+# ── applying ────────────────────────────────────────────────────────────────
+
+# One hl.monitor call per output. Position is always explicit: "auto" re-places
+# outputs, which silently rearranges a desk someone has already arranged.
+apply_json() {
+    local json="$1"
+    local specs; specs="$(NB_JSON="$json" py <<'PY'
+import json, os
+outs = json.loads(os.environ["NB_JSON"])
+for name, o in sorted(outs.items()):
+    fields = ['output="%s"' % name]
+    if o.get("disabled"):
+        # Everything else is meaningless while it is off, and passing a mode an
+        # unplugged output cannot do is a good way to get an error instead of a
+        # disable.
+        fields.append("disabled=true")
+    else:
+        fields.append('mode="%s"' % o.get("mode", "preferred"))
+        fields.append('position="%s"' % o.get("position", "auto"))
+        fields.append("scale=%s" % o.get("scale", 1))
+        fields.append("transform=%d" % int(o.get("transform", 0)))
+        fields.append("vrr=%d" % int(o.get("vrr", 0)))
+        fields.append("disabled=false")
+        mirror = o.get("mirror") or "none"
+        fields.append('mirror="%s"' % mirror)
+    print("hl.monitor({%s})" % ", ".join(fields))
+PY
+)"
+    local failed=0 spec
+    while IFS= read -r spec; do
+        [[ -n $spec ]] || continue
+        local out; out="$(hyprctl eval "$spec" 2>&1 | head -1)"
+        if [[ $out != ok ]]; then
+            printf 'neobrix-monitors: %s\n  %s\n' "$out" "$spec" >&2
+            failed=1
+        fi
+    done <<< "$specs"
+    return "$failed"
+}
+
+# A detached watcher, so a change that blacks out the screen comes back even if
+# whatever asked for it is gone. It re-applies the snapshot itself rather than
+# calling back into this script, so it cannot be defeated by the script being
+# mid-edit or off PATH.
+#
+# Every pending change carries an id. Without one, a second change would
+# overwrite the snapshot while the first watcher was still asleep, and that
+# watcher would then restore the *wrong* state and delete the pending file --
+# making the first change permanent without anyone confirming it, reverting the
+# second one early, and leaving `confirm` to report nothing pending while the
+# panel was still counting down.
+schedule_revert() {
+    local seconds="$1" id="$2"
+    setsid bash -c '
+        sleep "$1"
+        [[ -r "$3" ]] || exit 0
+        NB_PENDING="$3" NB_ID="$2" python3 -c "
+import json, os, subprocess, sys
+try:
+    doc = json.load(open(os.environ[\"NB_PENDING\"]))
+except Exception:
+    sys.exit(0)
+if doc.get(\"id\") != os.environ[\"NB_ID\"]:
+    sys.exit(0)          # a newer change owns the snapshot now
+os.remove(os.environ[\"NB_PENDING\"])
+for name, o in sorted(doc.get(\"outputs\", {}).items()):
+    if o.get(\"disabled\"):
+        spec = \"hl.monitor({output=\\\"%s\\\", disabled=true})\" % name
+    else:
+        spec = (\"hl.monitor({output=\\\"%s\\\", mode=\\\"%s\\\", position=\\\"%s\\\", scale=%s,\"
+                \" transform=%d, vrr=%d, disabled=false, mirror=\\\"%s\\\"})\") % (
+               name, o.get(\"mode\", \"preferred\"), o.get(\"position\", \"auto\"),
+               o.get(\"scale\", 1), int(o.get(\"transform\", 0)), int(o.get(\"vrr\", 0)),
+               o.get(\"mirror\") or \"none\")
+    subprocess.run([\"hyprctl\", \"eval\", spec],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+"
+    ' _ "$seconds" "$id" "$PENDING" >/dev/null 2>&1 < /dev/null &
+    disown 2>/dev/null || true
+}
+
+# The snapshot is taken once per burst, not once per change. Somebody arranging
+# three screens makes several changes in a row, and reverting should put back
+# what was there before they started rather than undoing only the last step. The
+# deadline, on the other hand, restarts with each change -- otherwise a long
+# session of dragging gets yanked back mid-edit by a timer started at the
+# beginning.
+begin_pending() {
+    (( REVERT_AFTER > 0 )) || return 0
+    local id="$$-${RANDOM}${RANDOM}" baseline
+    if [[ -r $PENDING ]]; then
+        baseline="$(NB_DOC="$(cat "$PENDING")" py <<'PY'
+import json, os
+print(json.dumps(json.loads(os.environ["NB_DOC"]).get("outputs", {}), sort_keys=True))
+PY
+)"
+    else
+        baseline="$(current_state)"
+    fi
+    NB_BASE="$baseline" NB_ID="$id" py <<'PY' > "$PENDING"
+import json, os
+print(json.dumps({"id": os.environ["NB_ID"],
+                  "outputs": json.loads(os.environ["NB_BASE"])}, sort_keys=True))
+PY
+    schedule_revert "$REVERT_AFTER" "$id"
+}
+
+cmd_confirm() {
+    if [[ -e $PENDING ]]; then rm -f "$PENDING"; echo "kept"; else echo "nothing pending"; fi
+}
+
+cmd_revert() {
+    [[ -r $PENDING ]] || { echo "nothing pending"; return 0; }
+    local outputs
+    outputs="$(NB_DOC="$(cat "$PENDING")" py <<'PY'
+import json, os
+print(json.dumps(json.loads(os.environ["NB_DOC"]).get("outputs", {})))
+PY
+)"
+    rm -f "$PENDING"
+    apply_json "$outputs" || true
+    echo "reverted"
+}
+
+cmd_set() {
+    local output="${1:?an output name}"; shift
+    (( $# )) || die "nothing to set; try mode=1920x1080@60 or scale=1.25"
+
+    local merged
+    merged="$(NB_CUR="$(current_state)" NB_OUT="$output" NB_KV="$*" py <<'PY'
+import json, os, sys
+outs = json.loads(os.environ["NB_CUR"])
+name = os.environ["NB_OUT"]
+if name not in outs:
+    sys.stderr.write("neobrix-monitors: no output named %r\n" % name)
+    raise SystemExit(1)
+o = outs[name]
+for pair in os.environ["NB_KV"].split():
+    if "=" not in pair:
+        sys.stderr.write("neobrix-monitors: expected key=value, got %r\n" % pair)
+        raise SystemExit(1)
+    k, v = pair.split("=", 1)
+    if k not in ("mode", "position", "scale", "transform", "vrr", "disabled", "mirror"):
+        sys.stderr.write("neobrix-monitors: cannot set %r\n" % k)
+        raise SystemExit(1)
+    if k in ("transform", "vrr"):
+        v = int(v)
+    elif k == "scale":
+        v = float(v)
+    elif k == "disabled":
+        v = v.lower() in ("1", "true", "yes", "on")
+    o[k] = v
+# Only the output being changed is re-applied. Re-applying the others would
+# undo a change someone made outside this tool between the read and the write.
+print(json.dumps({name: o}, indent=2, sort_keys=True))
+PY
+)" || exit 1
+
+    begin_pending
+    apply_json "$merged"
+}
+
+cmd_apply() {
+    local want="${1:-}"
+    local fp; fp="$(fingerprint)"
+    local outputs
+    outputs="$(NB_STATE="$(read_state)" NB_FP="$fp" NB_WANT="$want" py <<'PY'
+import json, os, sys
+st = json.loads(os.environ["NB_STATE"])
+profs = st.get("profiles", {})
+want = os.environ["NB_WANT"]
+if want:
+    for fp, p in profs.items():
+        if fp == want or p.get("name") == want:
+            print(json.dumps(p.get("outputs", {})))
+            raise SystemExit(0)
+    sys.stderr.write("neobrix-monitors: no profile matched %r\n" % want)
+    raise SystemExit(1)
+p = profs.get(os.environ["NB_FP"])
+if not p:
+    sys.stderr.write("neobrix-monitors: no profile saved for this set of outputs\n")
+    raise SystemExit(2)
+print(json.dumps(p.get("outputs", {})))
+PY
+)" || exit $?
+
+    begin_pending
+    apply_json "$outputs"
+}
+
+# ── arranging ────────────────────────────────────────────────────────────────
+#
+# Rotating a screen changes how much room it takes: a 2560x1440 panel turned on
+# its side is 1440 wide, not 2560. Hyprland keeps reporting the mode unrotated,
+# so a layout built before the rotation leaves a gap exactly as wide as the
+# difference -- and a gap is dead space the pointer cannot cross, which reads as
+# "the screens are next to each other but the cursor will not go there".
+#
+# `arrange` closes that: it packs the enabled outputs left to right in the order
+# they are already in, using each one's real footprint, and leaves the vertical
+# positions alone.
+cmd_arrange() {
+    local packed
+    packed="$(NB_CUR="$(current_state)" NB_MONS="$(raw)" py <<'PY'
+import json, os
+
+# Built from current_state rather than the raw report, so every setting the
+# screens already have comes along -- and so the mode is the snapped one the
+# hardware advertises rather than the 59.951 it reports.
+cur = json.loads(os.environ["NB_CUR"])
+mons = {m["name"]: m for m in json.loads(os.environ["NB_MONS"])}
+
+def footprint(name):
+    m = mons.get(name) or {}
+    scale = m.get("scale") or 1
+    w, h = m.get("width", 0), m.get("height", 0)
+    if (m.get("transform") or 0) % 2 == 1:
+        w, h = h, w
+    return round(w / scale), round(h / scale)
+
+def pos(o):
+    x, _, y = o["position"].partition("x")
+    return int(x), int(y)
+
+live = [(n, o) for n, o in cur.items() if not o.get("disabled")]
+if not live:
+    print(json.dumps({}))
+    raise SystemExit(0)
+
+# Pack along the axis the screens are actually spread over. Packing x
+# unconditionally turned a vertical stack into a diagonal staircase whose
+# neighbours met only at the corners -- which still counts as a gap, so the
+# warning that offered to tidy up never went away.
+spanx = max(pos(o)[0] + footprint(n)[0] for n, o in live) - min(pos(o)[0] for n, o in live)
+spany = max(pos(o)[1] + footprint(n)[1] for n, o in live) - min(pos(o)[1] for n, o in live)
+vertical = spany > spanx
+
+live.sort(key=lambda t: (pos(t[1])[1], pos(t[1])[0]) if vertical
+                        else (pos(t[1])[0], pos(t[1])[1]))
+
+out, cursor = {}, None
+for name, o in live:
+    w, h = footprint(name)
+    x, y = pos(o)
+    if cursor is None:
+        cursor = y if vertical else x     # the first screen stays put
+    o = dict(o)
+    o["position"] = "{}x{}".format(x, cursor) if vertical else "{}x{}".format(cursor, y)
+    out[name] = o
+    cursor += h if vertical else w
+
+# Screens that are off keep their stored settings untouched.
+for name, o in cur.items():
+    out.setdefault(name, o)
+print(json.dumps(out, indent=2, sort_keys=True))
+PY
+)"
+    begin_pending
+    apply_json "$packed"
+    printf 'packed %s screen(s) edge to edge\n' "$(printf '%s' "$packed" | grep -c '"mode"')"
+}
+
+# ── a whole layout at once ───────────────────────────────────────────────────
+#
+# The Displays tab stages edits and applies them together, so the screens move
+# once instead of jerking after every adjustment. The layout arrives as JSON
+# describing only what changed; it is merged over what each output already has,
+# so nothing unmentioned is quietly reset to a default, and then normalised so
+# the top-left corner sits at 0,0.
+cmd_layout() {
+    local draft="${1:?a layout as JSON}"
+    local merged
+    merged="$(NB_DRAFT="$draft" NB_CUR="$(current_state)" NB_MONS="$(raw)" py <<'PY'
+import json, os, sys
+
+cur = json.loads(os.environ["NB_CUR"])
+mons = {m["name"]: m for m in json.loads(os.environ["NB_MONS"])}
+try:
+    draft = json.loads(os.environ["NB_DRAFT"])
+except ValueError as e:
+    sys.stderr.write("neobrix-monitors: layout is not valid JSON (%s)\n" % e)
+    raise SystemExit(1)
+if not isinstance(draft, dict):
+    sys.stderr.write("neobrix-monitors: layout must be an object of outputs\n")
+    raise SystemExit(1)
+
+allowed = {"mode", "position", "scale", "transform", "vrr", "disabled", "mirror"}
+for name, over in draft.items():
+    if name not in cur:
+        sys.stderr.write("neobrix-monitors: no output named %r\n" % name)
+        raise SystemExit(1)
+    if not isinstance(over, dict):
+        sys.stderr.write("neobrix-monitors: %s must map to an object\n" % name)
+        raise SystemExit(1)
+    unknown = set(over) - allowed
+    if unknown:
+        sys.stderr.write("neobrix-monitors: cannot set %s\n" % ", ".join(sorted(unknown)))
+        raise SystemExit(1)
+    # Coerce, because JSON from a GUI can carry "false" as a string and the
+    # string "false" is perfectly truthy -- which would switch a screen off
+    # while claiming to switch it on.
+    clean = dict(over)
+    if "disabled" in clean:
+        v = clean["disabled"]
+        clean["disabled"] = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
+    for k in ("transform", "vrr"):
+        if k in clean:
+            clean[k] = int(clean[k])
+    if "scale" in clean:
+        clean["scale"] = float(clean["scale"])
+    cur[name].update(clean)
+
+def footprint(name, o):
+    m = mons.get(name) or {}
+    scale = float(o.get("scale") or m.get("scale") or 1)
+    mode = o.get("mode") or ""
+    res = mode.split("@")[0]
+    try:
+        w, h = (int(v) for v in res.split("x"))
+    except ValueError:
+        w, h = m.get("width", 0), m.get("height", 0)
+    if int(o.get("transform") or 0) % 2 == 1:
+        w, h = h, w
+    return round(w / scale), round(h / scale)
+
+live = {n: o for n, o in cur.items() if not o.get("disabled")}
+if live:
+    xs, ys = [], []
+    for n, o in live.items():
+        x, _, y = o["position"].partition("x")
+        xs.append(int(x)); ys.append(int(y))
+    # Only negatives are shifted. Forcing the corner to exactly 0,0 moved
+    # screens nobody had touched -- with the laptop panel switched off the
+    # layout legitimately starts at 1920, and sliding everything left because
+    # of that is a surprise, not a tidy-up.
+    dx, dy = min(min(xs), 0), min(min(ys), 0)
+    if dx or dy:
+        for n, o in live.items():
+            x, _, y = o["position"].partition("x")
+            o["position"] = "{}x{}".format(int(x) - dx, int(y) - dy)
+
+print(json.dumps(cur, indent=2, sort_keys=True))
+PY
+)" || exit 1
+
+    begin_pending
+    apply_json "$merged"
+}
+
+# ── placing ──────────────────────────────────────────────────────────────────
+#
+# `set OUTPUT position=...` moves one screen and touches nothing else, which is
+# right for a scripted change and wrong for dragging: putting a screen to the
+# left of the leftmost one needs a negative coordinate, and while Hyprland
+# accepts those, a layout that drifts into negative space is confusing to reason
+# about and to save.
+#
+# So `place` moves one screen wherever it was dropped -- negatives included --
+# and then shifts the whole layout back so the top-left corner sits at 0,0. The
+# arrangement is identical, the numbers stay sane, and the person dragging never
+# has to think about it.
+cmd_place() {
+    local output="${1:?an output name}" pos="${2:?a position like 1920x0}"
+    local moved
+    moved="$(NB_CUR="$(current_state)" NB_MONS="$(raw)" NB_OUT="$output" NB_POS="$pos" py <<'PY'
+import json, os, sys
+
+cur = json.loads(os.environ["NB_CUR"])
+mons = {m["name"]: m for m in json.loads(os.environ["NB_MONS"])}
+name, pos = os.environ["NB_OUT"], os.environ["NB_POS"]
+
+if name not in cur:
+    sys.stderr.write("neobrix-monitors: no output named %r\n" % name)
+    raise SystemExit(1)
+if cur[name].get("disabled"):
+    # A screen that is off occupies no space, so there is nowhere to put it.
+    # Switching one back on is `set disabled=false`, which must keep working
+    # -- this guard once sat in cmd_set and made a dark screen unrecoverable.
+    sys.stderr.write("neobrix-monitors: %s is switched off; turn it on first\n" % name)
+    raise SystemExit(1)
+try:
+    px, py_ = (int(v) for v in pos.lower().split("x"))
+except ValueError:
+    sys.stderr.write("neobrix-monitors: expected a position like 1920x0, got %r\n" % pos)
+    raise SystemExit(1)
+
+cur[name]["position"] = "{}x{}".format(px, py_)
+
+def footprint(n):
+    m = mons.get(n) or {}
+    scale = m.get("scale") or 1
+    w, h = m.get("width", 0), m.get("height", 0)
+    if (m.get("transform") or 0) % 2 == 1:
+        w, h = h, w
+    return round(w / scale), round(h / scale)
+
+live = {n: o for n, o in cur.items() if not o.get("disabled")}
+if live:
+    xs, ys = [], []
+    for n, o in live.items():
+        x, y = (int(v) for v in o["position"].split("x"))
+        xs.append(x); ys.append(y)
+    # Only negatives, for the same reason as in `layout`.
+    dx, dy = min(min(xs), 0), min(min(ys), 0)
+    if dx or dy:
+        for n, o in live.items():
+            x, y = (int(v) for v in o["position"].split("x"))
+            o["position"] = "{}x{}".format(x - dx, y - dy)
+
+print(json.dumps(cur, indent=2, sort_keys=True))
+PY
+)" || exit 1
+
+    begin_pending
+    apply_json "$moved"
+}
+
+# ── refresh cap ──────────────────────────────────────────────────────────────
+#
+# The battery policy wants the internal panel slower, and the saved profile
+# wants it as the person chose. Both cannot own the mode, so the cap is layered
+# on top: `cap` remembers what the panel was running and drops it to the fastest
+# advertised mode at or below the limit, `uncap` puts it back. Only outputs named
+# eDP* are touched -- an external monitor is somebody's desk, not a battery
+# saving.
+internal_outputs() {
+    NB_MONS="$(raw)" py <<'PY'
+import json, os
+for m in json.loads(os.environ["NB_MONS"]):
+    if m["name"].startswith("eDP") and not m.get("disabled"):
+        print(m["name"])
+PY
+}
+
+# Re-apply one output with a different mode, keeping every other setting it
+# already has. Handing apply_json a spec of only mode/position/scale lets its
+# defaults fill in the rest, which quietly un-rotated a rotated panel and turned
+# VRR off every time the charger came out.
+set_mode_only() {
+    local out="$1" mode="$2"
+    apply_json "$(NB_CUR="$(current_state)" NB_OUT="$out" NB_MODE="$mode" py <<'PY'
+import json, os
+cur = json.loads(os.environ["NB_CUR"])
+o = dict(cur[os.environ["NB_OUT"]])
+o["mode"] = os.environ["NB_MODE"]
+print(json.dumps({os.environ["NB_OUT"]: o}, sort_keys=True))
+PY
+)"
+}
+
+cmd_cap() {
+    local hz="${1:?a refresh rate}"
+    mkdir -p "$STATE_DIR"
+    local out
+    while IFS= read -r out; do
+        [[ -n $out ]] || continue
+        local restore="$STATE_DIR/refresh-restore-$out"
+        # Capping twice would record the capped mode as the one to go back to,
+        # and then uncapping would leave the panel slow for good.
+        if [[ -e $restore ]]; then
+            printf '%s is already capped\n' "$out"
+            continue
+        fi
+        local target
+        target="$(NB_MONS="$(raw)" NB_OUT="$out" NB_HZ="$hz" py <<'PY'
+import json, os
+name, cap = os.environ["NB_OUT"], float(os.environ["NB_HZ"])
+for m in json.loads(os.environ["NB_MONS"]):
+    if m["name"] != name:
+        continue
+    best = None
+    for am in m.get("availableModes") or []:
+        res, _, hz = am.partition("@")
+        w, _, h = res.partition("x")
+        try:
+            hz = float(hz.rstrip("Hz"))
+            if int(w) != m["width"] or int(h) != m["height"]:
+                continue
+        except ValueError:
+            continue
+        # Fastest mode that still respects the cap; if nothing is slow enough,
+        # the panel has no lower gear and is left alone.
+        if hz <= cap + 0.5 and (best is None or hz > best):
+            best = hz
+    if best is not None:
+        print("{}x{}@{:g}".format(m["width"], m["height"], round(best, 2)))
+PY
+)"
+        [[ -n $target ]] || continue
+        local now
+        now="$(NB_CUR="$(current_state)" NB_OUT="$out" py <<'PY'
+import json, os
+print(json.loads(os.environ["NB_CUR"])[os.environ["NB_OUT"]]["mode"])
+PY
+)"
+        [[ $now == "$target" ]] && continue     # already there; nothing to restore
+        printf '%s' "$now" > "$restore"
+        set_mode_only "$out" "$target"
+        printf 'capped %s at %s (was %s)\n' "$out" "$target" "$now"
+    done < <(internal_outputs)
+}
+
+cmd_uncap() {
+    local out
+    while IFS= read -r out; do
+        [[ -n $out ]] || continue
+        local restore="$STATE_DIR/refresh-restore-$out" mode=""
+        [[ -r $restore ]] && mode="$(cat "$restore")"
+        # Nothing recorded means nothing was capped. Re-applying "preferred"
+        # would then override a mode the person had chosen themselves.
+        if [[ -z $mode ]]; then
+            printf '%s was not capped\n' "$out"
+            continue
+        fi
+        set_mode_only "$out" "$mode"
+        rm -f "$restore"
+        printf 'uncapped %s to %s\n' "$out" "$mode"
+    done < <(internal_outputs)
+}
+
+# ── the startup path ─────────────────────────────────────────────────────────
+#
+# Applying from the shell after login works, but the layout visibly snaps into
+# place a second late. Emitting Lua that Hyprland reads while parsing its config
+# means the session starts in the right shape. The catch-all comes first so an
+# output with no saved settings still gets something sensible.
+cmd_generate() {
+    local fp; fp="$(fingerprint)"
+    mkdir -p "$(dirname "$GENERATED")"
+    NB_STATE="$(read_state)" NB_FP="$fp" py <<'PY' > "$GENERATED.tmp"
+import json, os
+
+st = json.loads(os.environ["NB_STATE"])
+profs = st.get("profiles", {})
+fp = os.environ["NB_FP"]
+p = profs.get(fp)
+
+print("-- Generated by neobrix-monitors. Edits here are overwritten; change the")
+print("-- layout from the control centre's Displays tab, or with neobrix-monitors.")
+print("return function(_ctx)")
+print('    hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "auto" })')
+
+# Only the profile for the screens that were attached when this was written.
+#
+# Emitting every saved profile is what this used to do, and it is dangerous:
+# Hyprland applies monitor rules in order and the last match wins, so whichever
+# profile happened to sort last decided the layout no matter what was plugged
+# in. With a "laptop closed while docked" profile saved -- an ordinary thing to
+# want -- booting undocked would switch off the only screen there was, at config
+# parse time, leaving no desktop to undo it from.
+if p:
+    print()
+    print("    -- %s (%s)" % (p.get("name", "unnamed"), p.get("outputs_seen", "?")))
+    for name, o in sorted(p.get("outputs", {}).items()):
+        if o.get("disabled"):
+            # Deliberately not emitted. A screen switched off before login is a
+            # screen that cannot be switched back on without a working desktop,
+            # and this file is applied blind -- it cannot check what is actually
+            # connected. The shell turns it off after login instead, where the
+            # decision is reversible.
+            print("    -- %s is off in this profile; left on here so a mistake stays fixable" % name)
+            continue
+        print('    hl.monitor({ output = "%s", mode = "%s", position = "%s", scale = %s,'
+              ' transform = %d, vrr = %d, disabled = false, mirror = "%s" })' % (
+              name, o.get("mode", "preferred"), o.get("position", "auto"),
+              o.get("scale", 1), int(o.get("transform", 0)), int(o.get("vrr", 0)),
+              o.get("mirror") or "none"))
+else:
+    print()
+    print("    -- no profile saved for the screens attached when this was written")
+print("end")
+PY
+    mv "$GENERATED.tmp" "$GENERATED"
+    printf 'wrote %s\n' "$GENERATED"
+}
+
+# ── dispatch ────────────────────────────────────────────────────────────────
+
+ARGS=()
+while (( $# )); do
+    case $1 in
+        --revert-after) REVERT_AFTER="${2:?seconds}"; shift 2 ;;
+        --revert-after=*) REVERT_AFTER="${1#*=}"; shift ;;
+        *) ARGS+=("$1"); shift ;;
+    esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+case "${1:-list}" in
+    list)        cmd_list ;;
+    state)       current_state ;;
+    fingerprint) printf '%s  (%s)\n' "$(fingerprint)" "$(outputs_seen)" ;;
+    set)         shift; cmd_set "$@" ;;
+    apply)       shift; cmd_apply "${1:-}" ;;
+    save)        shift; cmd_save "${1:-}" ;;
+    profiles)    cmd_profiles ;;
+    forget)      shift; cmd_forget "${1:-}" ;;
+    confirm)     cmd_confirm ;;
+    revert)      cmd_revert ;;
+    generate)    cmd_generate ;;
+    place)       shift; cmd_place "${1:-}" "${2:-}" ;;
+    layout)      shift; cmd_layout "${1:-}" ;;
+    arrange)     cmd_arrange ;;
+    cap)         shift; cmd_cap "${1:-}" ;;
+    uncap)       cmd_uncap ;;
+    -h|--help|help) sed -n '2,40p' "$(readlink -f "$0")" | sed 's/^# \?//' ;;
+    *)           die "unknown command '$1'; try --help" ;;
+esac
