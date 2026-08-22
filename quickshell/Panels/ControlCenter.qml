@@ -37,6 +37,7 @@ BrixPopup {
         Notifs.subscribe();
         SysInfo.refreshPackages();
         SysInfo.requestGpuMemory();
+        Idle.refresh();
     }
     onPanelClosed: {
         SysInfo.unsubscribe();

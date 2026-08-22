@@ -69,6 +69,18 @@ Item {
             onRightClicked: Panels.openControl("connectivity")
         }
 
+        // ── keeping awake (hidden unless it is) ─────────────────────────────
+        // The whole hazard of an idle inhibitor is forgetting it is on: the
+        // screen never sleeps, the battery goes, and nothing said so. It costs
+        // one glyph to say so, and nothing at all when it is off.
+        Glyph {
+            visible: Idle.inhibited
+            glyph: "󰅶"
+            color: Theme.warning
+            tooltip: "Keeping awake · nothing will dim, lock or suspend"
+            onClicked: Idle.toggle()
+        }
+
         // ── network ─────────────────────────────────────────────────────────
         Glyph {
             glyph: Net.icon

@@ -145,6 +145,18 @@ Item {
                     }
                     ActionRow {
                         Layout.fillWidth: true
+                        // Reads as the state, not the action, unlike Record
+                        // above: "Keeping awake" is a thing the machine is
+                        // currently doing to itself, and leaving it on by
+                        // accident costs a battery. Worth being able to see at a
+                        // glance which way round it is.
+                        icon: Idle.inhibited ? "󰅶" : "󰒲"
+                        label: Idle.inhibited ? "Keeping awake" : "Keep awake"
+                        accent: Idle.inhibited ? Theme.warning : Theme.secondary
+                        onActivated: Idle.toggle()
+                    }
+                    ActionRow {
+                        Layout.fillWidth: true
                         icon: "󰸉"; label: "Wallpaper"; accent: Theme.pink
                         onActivated: Quickshell.execDetached(["neobrix-wallpaper", "next"])
                     }

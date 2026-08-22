@@ -580,6 +580,17 @@ disables the CRTC but not the backlight, which is a separate device it does not
 touch, so on its own it produced no measurable drop in battery draw at all — a
 black screen that still costs what a lit one does.
 
+**Keep awake.** The control centre's quick actions include a *Keep awake* toggle,
+and while it is on a coffee glyph sits in the bar — clickable, to turn it off
+again. It holds a logind inhibitor, which is the mechanism hypridle already
+respects (`ignore_systemd_inhibit = false`), so nothing dims, locks, blanks or
+suspends until it is released. The lock lives in a detached process, so it
+survives the shell restarting; `neobrix-idle inhibit status` is the truth, and it
+clears a stale lock file left by a crash.
+
+The lid switch is deliberately not inhibited: keeping the *screen* awake should
+not also mean staying powered up in a closed bag.
+
 `neobrix-power` follows the cable, driven by the shell watching UPower:
 
 | | on battery | on mains |
@@ -711,6 +722,7 @@ Full list: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md). The essentials:
 | `neobrix-generate-wallpapers [dir] [WxH]` | regenerate the built-in set |
 | `neobrix-theme dawn\|dusk\|current` | apply the palette to terminals, GTK, Qt and KDE |
 | `neobrix-idle dark\|light\|suspend` | the idle steps hypridle calls; `suspend` refuses unless on battery |
+| `neobrix-idle inhibit on\|off\|toggle\|status` | keep awake: hold a logind lock so nothing dims, locks or suspends |
 | `neobrix-power auto\|battery\|mains\|status` | match the power policy to the cable |
 | `neobrix-monitors list\|state\|set\|apply\|save\|profiles` | read and change the display layout |
 | `neobrix-monitors cap <hz>\|uncap` | limit the internal panel's refresh, and put it back |

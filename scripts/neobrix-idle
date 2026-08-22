@@ -7,6 +7,10 @@
 #      neobrix-idle light      screen back on
 #      neobrix-idle suspend    suspend, but only when running on battery
 #
+#      neobrix-idle inhibit on|off|toggle|status
+#                              hold a logind lock so nothing dims, locks, blanks
+#                              or suspends until it is released
+#
 #  Set NEOBRIX_DRY_RUN=1 to print what would happen instead of doing it.
 #
 #  Why `dark` turns the backlight off as well: Hyprland's `dpms off` disables
@@ -37,6 +41,47 @@ dpms() {
 HERE="$(dirname "$(readlink -f "$0")")"
 # shellcheck source=lib/power.sh
 source "$HERE/lib/power.sh"
+
+# ── keep awake ───────────────────────────────────────────────────────────────
+#
+# A held logind inhibitor, which is the mechanism hypridle already respects:
+# hypridle.conf sets ignore_systemd_inhibit = false, so while this lock is held
+# it will not dim, lock, blank or suspend. Nothing here has to know the timings.
+#
+# The lock lives in a detached process that does nothing but hold it, so it
+# survives the shell, the terminal and this script exiting. `idle:sleep` covers
+# the idle chain and an explicit suspend; the lid switch is deliberately left
+# alone, because "keep the screen awake" should not also mean "stay running with
+# the laptop shut in a bag".
+INHIBIT_PID="${XDG_RUNTIME_DIR:-/tmp}/neobrix-inhibit.pid"
+
+inhibit_alive() {
+    [[ -r $INHIBIT_PID ]] || return 1
+    local pid; pid="$(cat "$INHIBIT_PID" 2>/dev/null)"
+    [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null
+}
+
+inhibit_on() {
+    inhibit_alive && { echo "already awake"; return 0; }
+    command -v systemd-inhibit >/dev/null 2>&1 || { printf 'neobrix-idle: systemd-inhibit not found\n' >&2; return 1; }
+    # $$ inside the subshell is the process that then execs, so the pid stays
+    # valid for the inhibitor itself rather than pointing at a shell that exited.
+    setsid bash -c 'echo $$ > "$1"; exec systemd-inhibit \
+        --what=idle:sleep --who=Neobrix --why="Keep awake" --mode=block \
+        sleep infinity' _ "$INHIBIT_PID" </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    sleep 0.3
+    inhibit_alive && echo "staying awake" || { printf 'neobrix-idle: could not hold the lock\n' >&2; return 1; }
+}
+
+inhibit_off() {
+    if ! inhibit_alive; then rm -f "$INHIBIT_PID"; echo "not held"; return 0; fi
+    local pid; pid="$(cat "$INHIBIT_PID")"
+    # The group, because the inhibitor has a `sleep` of its own to take with it.
+    kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    rm -f "$INHIBIT_PID"
+    echo "idle timers back on"
+}
 
 case ${1:-} in
     dark)
@@ -71,6 +116,20 @@ case ${1:-} in
             printf 'on mains, not suspending\n'
         fi
         ;;
+    inhibit)
+        case ${2:-status} in
+            on|start)   inhibit_on ;;
+            off|stop)   inhibit_off ;;
+            toggle)     if inhibit_alive; then inhibit_off; else inhibit_on; fi ;;
+            status)
+                # Self-healing: a pid file left behind by a crash would
+                # otherwise have the shell showing "awake" forever.
+                if inhibit_alive; then echo on; else rm -f "$INHIBIT_PID"; echo off; exit 1; fi
+                ;;
+            *) die "inhibit takes on, off, toggle or status" ;;
+        esac
+        ;;
+
     on-battery)
         # Exposed so the guard above can be checked without suspending anything.
         neobrix_on_battery && { echo yes; exit 0; } || { echo no; exit 1; }

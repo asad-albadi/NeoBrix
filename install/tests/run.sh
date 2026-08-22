@@ -760,6 +760,59 @@ test_monitors_layout() {
     unset NB_EVAL_LOG
 }
 
+test_idle_inhibit() {
+    case_ "keep awake holds a real lock, and says so honestly"
+
+    local dir="$TMP/inh"
+    mkdir -p "$dir/bin" "$dir/run"
+    # A stand-in for systemd-inhibit that behaves like the real one for this
+    # purpose: it holds until killed.
+    cat > "$dir/bin/systemd-inhibit" <<'STUB'
+#!/usr/bin/env bash
+exec sleep infinity
+STUB
+    chmod +x "$dir/bin/systemd-inhibit"
+
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_RUNTIME_DIR=$dir/run"
+               "$REPO/scripts/neobrix-idle")
+
+    assert_eq "status is off before anything is held" "off" "$("${run[@]}" inhibit status 2>&1)"
+
+    "${run[@]}" inhibit on >/dev/null 2>&1
+    assert_eq "status is on once held" "on" "$("${run[@]}" inhibit status 2>&1)"
+    [[ -r "$dir/run/neobrix-inhibit.pid" ]] && ok "the lock records its pid" \
+                                            || bad "the lock records its pid"
+
+    # Turning it on twice must not leak a second lock, or the first pid is lost
+    # and nothing can release it.
+    local first; first="$(cat "$dir/run/neobrix-inhibit.pid")"
+    "${run[@]}" inhibit on >/dev/null 2>&1
+    assert_eq "a second on is a no-op, not a second lock" "$first" \
+              "$(cat "$dir/run/neobrix-inhibit.pid")"
+
+    "${run[@]}" inhibit toggle >/dev/null 2>&1
+    assert_eq "toggle releases it" "off" "$("${run[@]}" inhibit status 2>&1)"
+    [[ -e "$dir/run/neobrix-inhibit.pid" ]] && bad "the pid file is cleaned up" \
+                                            || ok "the pid file is cleaned up"
+
+    # A pid file left behind by a crash must not read as "awake" forever: the
+    # bar would show a lock that is not held and nothing would clear it.
+    echo 999999 > "$dir/run/neobrix-inhibit.pid"
+    assert_eq "a stale pid file reads as off" "off" "$("${run[@]}" inhibit status 2>&1)"
+    [[ -e "$dir/run/neobrix-inhibit.pid" ]] && bad "and is cleared" || ok "and is cleared"
+
+    # It must not claim to be holding anything it cannot. A PATH with a shell and
+    # the handful of tools the script uses, but deliberately no systemd-inhibit.
+    mkdir -p "$dir/bare"
+    local t
+    for t in env bash cat rm sleep setsid readlink dirname basename; do
+        [[ -x /usr/bin/$t ]] && ln -sf "/usr/bin/$t" "$dir/bare/$t"
+    done
+    local out; out="$(env -i "PATH=$dir/bare" "HOME=$dir" "XDG_RUNTIME_DIR=$dir/run" \
+        "$REPO/scripts/neobrix-idle" inhibit on 2>&1 || true)"
+    assert_has "it says so when systemd-inhibit is missing" "systemd-inhibit" "$out"
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -773,6 +826,7 @@ if (( DO_LOCAL )); then
     test_monitors_hazards
     test_monitors_cap_preserves
     test_monitors_layout
+    test_idle_inhibit
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"
