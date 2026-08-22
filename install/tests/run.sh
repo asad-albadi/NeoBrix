@@ -714,6 +714,52 @@ test_monitors_cap_preserves() {
     unset NB_EVAL_LOG
 }
 
+test_monitors_layout() {
+    case_ "a staged layout applies as one change"
+
+    local dir="$TMP/lay"
+    mkdir -p "$dir/bin" "$dir/state"
+    cp "$TMP/rot/bin/hyprctl" "$dir/bin/hyprctl"     # includes a rotated panel
+    export NB_EVAL_LOG="$dir/eval.log"
+    : > "$NB_EVAL_LOG"
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state"
+               "XDG_RUNTIME_DIR=$dir" "$REPO/scripts/neobrix-monitors")
+
+    # Several changes at once, and only the fields named. Everything else has to
+    # survive: a partial spec used to let apply_json's defaults un-rotate a
+    # rotated screen.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" layout '{"eDP-1":{"scale":1},"DP-1":{"vrr":1}}' >/dev/null 2>&1
+    local evals; evals="$(cat "$NB_EVAL_LOG")"
+    assert_has "layout drives every named output" 'output="eDP-1"' "$evals"
+    assert_has "layout drives the other one too" 'output="DP-1"' "$evals"
+    assert_has "an unnamed field is preserved" "transform=1" "$evals"
+    assert_has "and the field that changed is set" "vrr=1" "$evals"
+
+    # "false" is a truthy string, and treating it as one would switch a screen
+    # off while claiming to switch it on.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" layout '{"DP-1":{"disabled":"false"}}' >/dev/null 2>&1
+    assert_has "a stringy false does not disable" "disabled=false" "$(cat "$NB_EVAL_LOG")"
+
+    # A drop to the left is negative and must be accepted, then shifted back.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" layout '{"eDP-1":{"position":"-1920x0"}}' >/dev/null 2>&1
+    assert_lacks "layout leaves nothing negative" 'position="-' "$(cat "$NB_EVAL_LOG")"
+
+    # But a layout that legitimately starts away from the origin is left alone:
+    # forcing the corner to 0,0 moved screens nobody had touched.
+    : > "$NB_EVAL_LOG"
+    "${run[@]}" layout '{"DP-1":{"vrr":0}}' >/dev/null 2>&1
+    assert_has "a non-position change moves nothing" 'output="eDP-1", mode="1920x1080@60", position="0x0"' \
+               "$(cat "$NB_EVAL_LOG")"
+
+    local out; out="$("${run[@]}" layout '{"DP-1":{"bogus":1}}' 2>&1)"
+    assert_has "layout rejects a field it cannot set" "cannot set bogus" "$out"
+
+    unset NB_EVAL_LOG
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -726,6 +772,7 @@ if (( DO_LOCAL )); then
     test_monitors_place_guard
     test_monitors_hazards
     test_monitors_cap_preserves
+    test_monitors_layout
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"

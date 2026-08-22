@@ -535,9 +535,15 @@ is accepted and then normalised — the whole layout shifts so its corner sits a
 0,0 again. Positions are always written explicitly; Hyprland's `auto` would
 re-place every output and rearrange a desk you had already arranged.
 
+**Change, then apply.** Edits are staged: drag the screens around, pick modes and
+scales, and nothing on the desk moves while you do it. A bar appears saying how
+many screens you have changed, with **Apply** and **Cancel**. Applying sends the
+whole arrangement in one go, so the screens rearrange once instead of jerking
+after every adjustment.
+
 **Nothing sticks until you say so.** A mode a monitor cannot display leaves a
-black screen, and a black screen cannot be clicked out of, so every change starts
-a countdown and puts itself back unless you press Keep. The timer runs in a
+black screen, and a black screen cannot be clicked out of, so applying starts a
+countdown and puts itself back unless you press Keep. The timer runs in a
 detached process: it restores the display even if the shell that made the change
 has died. Pressing Keep on a set of screens that already has a profile updates
 that profile, because keeping a change is a statement about how those screens

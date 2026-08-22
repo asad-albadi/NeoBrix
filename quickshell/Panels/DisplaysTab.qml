@@ -26,12 +26,57 @@ Item {
 
     property string selected: ""
 
+    // Edits are staged here rather than applied as they are made. Applying each
+    // adjustment on its own meant the screens jerked every time anything moved,
+    // and a countdown appeared for a half-finished arrangement; this collects
+    // the changes and sends them together when Apply is pressed.
+    //
+    // Keys are output names, values hold only what changed, in the shape the
+    // CLI takes: { mode, position, scale, transform, vrr, disabled, mirror }.
+    property var draft: ({})
+
+    readonly property bool dirty: Object.keys(root.draft).length > 0
+
+    function stage(name, changes) {
+        const next = {};
+        for (const k in root.draft) next[k] = root.draft[k];
+        const entry = {};
+        for (const k in (next[name] || {})) entry[k] = next[name][k];
+        for (const k in changes) entry[k] = changes[k];
+        next[name] = entry;
+        root.draft = next;          // a new object, so the bindings notice
+    }
+
+    function discard() { root.draft = ({}); }
+
+    function commit() {
+        if (!root.dirty) return;
+        Monitors.applyLayout(root.draft);
+        root.draft = ({});
+    }
+
+    // The arrangement as it would be with the staged edits applied. Everything
+    // in the tab reads this, so the map and the controls show what Apply would
+    // actually do.
+    readonly property var view: {
+        const out = [];
+        for (const m of Monitors.list)
+            out.push(root.draft[m.name] ? Monitors.derive(m, root.draft[m.name]) : m);
+        out.sort((a, b) => a.x - b.x || a.y - b.y);
+        return out;
+    }
+
+    function viewByName(name) {
+        for (const m of root.view) if (m.name === name) return m;
+        return null;
+    }
+
     readonly property var current: {
         if (root.selected !== "") {
-            const m = Monitors.byName(root.selected);
+            const m = root.viewByName(root.selected);
             if (m) return m;
         }
-        return Monitors.count > 0 ? Monitors.list[0] : null;
+        return root.view.length > 0 ? root.view[0] : null;
     }
 
     // Follow hotplug: a screen that goes away should not leave its settings on
@@ -41,12 +86,69 @@ Item {
         function onListChanged() {
             if (root.selected !== "" && !Monitors.byName(root.selected))
                 root.selected = "";
+            // Staged edits describe screens that were attached when they were
+            // made. If the set has changed, applying them would be acting on
+            // stale intent.
+            for (const name in root.draft) {
+                if (!Monitors.byName(name)) { root.discard(); break; }
+            }
         }
     }
 
     ColumnLayout {
         anchors.fill: parent
         spacing: Theme.spaceMd
+
+        // ── staged edits ────────────────────────────────────────────────────
+        // Nothing has moved yet at this point. Apply sends the lot, and only
+        // then does the Keep / Revert countdown below appear.
+        BrixCard {
+            id: staged
+            Layout.fillWidth: true
+            visible: root.dirty
+            Layout.preferredHeight: 44
+            radius: Theme.radiusMd
+            color: Theme.info
+            shadowOffset: Theme.shadowSm
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spaceSm
+                spacing: Theme.spaceSm
+
+                Text {
+                    Layout.fillWidth: true
+                    text: {
+                        const n = Object.keys(root.draft).length;
+                        return (n === 1 ? "1 screen changed" : n + " screens changed")
+                             + "  ·  nothing has moved yet";
+                    }
+                    elide: Text.ElideRight
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontXs
+                    font.weight: Theme.weightHeavy
+                    color: Theme.textOn(staged.color)
+                }
+
+                BrixButton {
+                    text: "APPLY"
+                    fontSize: 9
+                    vPadding: 4
+                    accent: Theme.secondary
+                    behind: staged.color
+                    onClicked: root.commit()
+                }
+
+                BrixButton {
+                    text: "CANCEL"
+                    fontSize: 9
+                    vPadding: 4
+                    accent: Theme.surface
+                    behind: staged.color
+                    onClicked: root.discard()
+                }
+            }
+        }
 
         // ── the unconfirmed-change banner ───────────────────────────────────
         // Deliberately at the top and impossible to miss. The script reverts on
@@ -140,8 +242,8 @@ Item {
                             SectionHeader { text: "ARRANGEMENT"; icon: "󰍹"; Layout.fillWidth: true }
 
                             Text {
-                                text: Monitors.count === 1 ? "1 screen"
-                                                           : Monitors.count + " screens"
+                                text: root.view.length === 1 ? "1 screen"
+                                                           : root.view.length + " screens"
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 8
                                 color: Theme.foregroundDim
@@ -154,7 +256,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: Monitors.hasGap
+                                text: Monitors.gapIn(root.view)
                                       ? "A screen is not touching the others — the pointer cannot cross the gap."
                                       : Monitors.count > 1
                                         ? "Drag to move. Edges and centres snap — hold Ctrl to place freely."
@@ -162,18 +264,18 @@ Item {
                                 wrapMode: Text.WordWrap
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 8
-                                font.weight: Monitors.hasGap ? Theme.weightHeavy : Theme.weightBold
-                                color: Monitors.hasGap ? Theme.warning : Theme.foregroundDim
+                                font.weight: Monitors.gapIn(root.view) ? Theme.weightHeavy : Theme.weightBold
+                                color: Monitors.gapIn(root.view) ? Theme.warning : Theme.foregroundDim
                             }
 
                             BrixButton {
-                                visible: Monitors.hasGap
+                                visible: Monitors.gapIn(root.view)
                                 text: "TIDY UP"
                                 fontSize: 8
                                 vPadding: 2
                                 accent: Theme.warning
                                 behind: Theme.surface
-                                onClicked: Monitors.arrange()
+                                onClicked: { root.discard(); Monitors.arrange(); }
                             }
                         }
 
@@ -191,22 +293,22 @@ Item {
                             readonly property real pad: 10
                             readonly property real minX: {
                                 let v = 0; let first = true;
-                                for (const m of Monitors.list) { if (first || m.x < v) { v = m.x; first = false; } }
+                                for (const m of root.view) { if (first || m.x < v) { v = m.x; first = false; } }
                                 return v;
                             }
                             readonly property real minY: {
                                 let v = 0; let first = true;
-                                for (const m of Monitors.list) { if (first || m.y < v) { v = m.y; first = false; } }
+                                for (const m of root.view) { if (first || m.y < v) { v = m.y; first = false; } }
                                 return v;
                             }
                             readonly property real spanX: {
                                 let v = 1;
-                                for (const m of Monitors.list) v = Math.max(v, m.x + m.logicalWidth - canvas.minX);
+                                for (const m of root.view) v = Math.max(v, m.x + m.logicalWidth - canvas.minX);
                                 return v;
                             }
                             readonly property real spanY: {
                                 let v = 1;
-                                for (const m of Monitors.list) v = Math.max(v, m.y + m.logicalHeight - canvas.minY);
+                                for (const m of root.view) v = Math.max(v, m.y + m.logicalHeight - canvas.minY);
                                 return v;
                             }
                             readonly property real factor: Math.min(
@@ -223,7 +325,7 @@ Item {
                             // screen's own leading edge.
                             function candidates(name, size, axis) {
                                 const out = [0];   // square up with the layout corner
-                                for (const o of Monitors.list) {
+                                for (const o of root.view) {
                                     if (o.name === name) continue;
                                     const p = axis === "x" ? o.x : o.y;
                                     const s = axis === "x" ? o.logicalWidth : o.logicalHeight;
@@ -265,7 +367,7 @@ Item {
                             function toLogicalY(cy) { return (cy - pad) / canvas.factor + canvas.minY; }
 
                             Repeater {
-                                model: Monitors.list
+                                model: root.view
 
                                 delegate: Rectangle {
                                     id: tile
@@ -396,11 +498,12 @@ Item {
                                             if (lx === tile.modelData.x && ly === tile.modelData.y)
                                                 return;
 
-                                            // place() rather than set(): a drop on
-                                            // the left is a negative coordinate, and
-                                            // the layout is shifted back to the
-                                            // origin afterwards.
-                                            Monitors.place(tile.modelData.name, lx, ly);
+                                            // Staged, not applied. The screens move
+                                            // once, when Apply is pressed; a
+                                            // negative coordinate is fine here and
+                                            // is normalised on the way out.
+                                            root.stage(tile.modelData.name,
+                                                       { position: lx + "x" + ly });
                                         }
                                     }
                                 }
@@ -501,7 +604,7 @@ Item {
                                     vPadding: 2
                                     accent: Theme.surfaceAlt
                                     behind: Theme.surface
-                                    onClicked: Monitors.applyProfile(parent.modelData.name)
+                                    onClicked: { root.discard(); Monitors.applyProfile(parent.modelData.name); }
                                 }
 
                                 BrixButton {
@@ -599,7 +702,7 @@ Item {
                             return out;
                         }
                         value: root.current ? Monitors.modeStringFor(root.current) : undefined
-                        onPicked: v => Monitors.set(root.current.name, { mode: v })
+                        onPicked: v => root.stage(root.current.name, { mode: v })
                     }
 
                     // ── scale ───────────────────────────────────────────────
@@ -633,7 +736,7 @@ Item {
                         enabled: root.current !== null && !root.current.disabled
                         options: root.current ? Monitors.validScales(root.current.width, root.current.height) : []
                         value: root.current ? root.current.scale : undefined
-                        onPicked: v => Monitors.set(root.current.name, { scale: v })
+                        onPicked: v => root.stage(root.current.name, { scale: v })
                     }
 
                     // ── rotation ────────────────────────────────────────────
@@ -652,7 +755,7 @@ Item {
                         enabled: root.current !== null && !root.current.disabled
                         options: Monitors.transformOptions
                         value: root.current ? root.current.transform : undefined
-                        onPicked: v => Monitors.set(root.current.name, { transform: v })
+                        onPicked: v => root.stage(root.current.name, { transform: v })
                     }
 
                     // ── mirror ──────────────────────────────────────────────
@@ -674,13 +777,13 @@ Item {
                         options: {
                             const out = [{ label: "Not mirroring", value: "none" }];
                             if (!root.current) return out;
-                            for (const m of Monitors.list)
+                            for (const m of root.view)
                                 if (m.name !== root.current.name)
                                     out.push({ label: "Mirror of " + m.name, value: m.name });
                             return out;
                         }
                         value: root.current && root.current.mirrorOf !== "" ? root.current.mirrorOf : "none"
-                        onPicked: v => Monitors.set(root.current.name, { mirror: v })
+                        onPicked: v => root.stage(root.current.name, { mirror: v })
                     }
 
                     Item { Layout.fillHeight: true }
@@ -704,7 +807,7 @@ Item {
                             checked: root.current ? root.current.vrr : false
                             onToggled: on => {
                                 if (!root.current || root.current.disabled) return;
-                                Monitors.set(root.current.name, { vrr: on ? 1 : 0 });
+                                root.stage(root.current.name, { vrr: on ? 1 : 0 });
                             }
                         }
                     }
@@ -744,7 +847,7 @@ Item {
                             checked: root.current ? !root.current.disabled : false
                             onToggled: on => {
                                 if (!root.current) return;
-                                Monitors.set(root.current.name, { disabled: on ? "false" : "true" });
+                                root.stage(root.current.name, { disabled: !on });
                             }
                         }
                     }
@@ -755,7 +858,7 @@ Item {
 
     readonly property int enabledCount: {
         let n = 0;
-        for (const m of Monitors.list) if (!m.disabled) n++;
+        for (const m of root.view) if (!m.disabled) n++;
         return n;
     }
 }

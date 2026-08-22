@@ -263,9 +263,11 @@ Singleton {
     // between two monitors sitting side by side. Rotating a screen is the usual
     // way to end up here, because its footprint changes underneath a layout
     // built for the old one.
-    readonly property bool hasGap: {
+    readonly property bool hasGap: root.gapIn(root.list)
+
+    function gapIn(list) {
         const on = [];
-        for (const m of root.list) if (!m.disabled) on.push(m);
+        for (const m of list) if (!m.disabled) on.push(m);
         if (on.length < 2) return false;
         for (const a of on) {
             let touches = false;
@@ -280,16 +282,6 @@ Singleton {
             if (!touches) return true;
         }
         return false;
-    }
-
-    // Moving one screen, with the layout normalised afterwards so the top-left
-    // corner stays at 0,0. Dropping a screen to the left of the leftmost one
-    // needs a negative coordinate, and clamping that to zero -- which is what
-    // this used to do -- turned "put it on the left" into "overlap the one that
-    // is already there".
-    function place(output, x, y) {
-        root.runChange(["neobrix-monitors", "--revert-after", String(root.revertWindow),
-                        "place", output, x + "x" + y]);
     }
 
     function arrange() {

@@ -16,6 +16,7 @@
 #      neobrix-monitors revert                  undo a pending change
 #      neobrix-monitors generate                write the Lua applied at startup
 #      neobrix-monitors place OUTPUT XxY        move one screen, keeping 0,0 at top-left
+#      neobrix-monitors layout JSON             apply several changes together
 #      neobrix-monitors arrange                 pack the screens edge to edge
 #      neobrix-monitors cap <hz>                cap the internal panel's refresh
 #      neobrix-monitors uncap                   put the internal panel back
@@ -524,6 +525,93 @@ PY
     printf 'packed %s screen(s) edge to edge\n' "$(printf '%s' "$packed" | grep -c '"mode"')"
 }
 
+# ── a whole layout at once ───────────────────────────────────────────────────
+#
+# The Displays tab stages edits and applies them together, so the screens move
+# once instead of jerking after every adjustment. The layout arrives as JSON
+# describing only what changed; it is merged over what each output already has,
+# so nothing unmentioned is quietly reset to a default, and then normalised so
+# the top-left corner sits at 0,0.
+cmd_layout() {
+    local draft="${1:?a layout as JSON}"
+    local merged
+    merged="$(NB_DRAFT="$draft" NB_CUR="$(current_state)" NB_MONS="$(raw)" py <<'PY'
+import json, os, sys
+
+cur = json.loads(os.environ["NB_CUR"])
+mons = {m["name"]: m for m in json.loads(os.environ["NB_MONS"])}
+try:
+    draft = json.loads(os.environ["NB_DRAFT"])
+except ValueError as e:
+    sys.stderr.write("neobrix-monitors: layout is not valid JSON (%s)\n" % e)
+    raise SystemExit(1)
+if not isinstance(draft, dict):
+    sys.stderr.write("neobrix-monitors: layout must be an object of outputs\n")
+    raise SystemExit(1)
+
+allowed = {"mode", "position", "scale", "transform", "vrr", "disabled", "mirror"}
+for name, over in draft.items():
+    if name not in cur:
+        sys.stderr.write("neobrix-monitors: no output named %r\n" % name)
+        raise SystemExit(1)
+    if not isinstance(over, dict):
+        sys.stderr.write("neobrix-monitors: %s must map to an object\n" % name)
+        raise SystemExit(1)
+    unknown = set(over) - allowed
+    if unknown:
+        sys.stderr.write("neobrix-monitors: cannot set %s\n" % ", ".join(sorted(unknown)))
+        raise SystemExit(1)
+    # Coerce, because JSON from a GUI can carry "false" as a string and the
+    # string "false" is perfectly truthy -- which would switch a screen off
+    # while claiming to switch it on.
+    clean = dict(over)
+    if "disabled" in clean:
+        v = clean["disabled"]
+        clean["disabled"] = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
+    for k in ("transform", "vrr"):
+        if k in clean:
+            clean[k] = int(clean[k])
+    if "scale" in clean:
+        clean["scale"] = float(clean["scale"])
+    cur[name].update(clean)
+
+def footprint(name, o):
+    m = mons.get(name) or {}
+    scale = float(o.get("scale") or m.get("scale") or 1)
+    mode = o.get("mode") or ""
+    res = mode.split("@")[0]
+    try:
+        w, h = (int(v) for v in res.split("x"))
+    except ValueError:
+        w, h = m.get("width", 0), m.get("height", 0)
+    if int(o.get("transform") or 0) % 2 == 1:
+        w, h = h, w
+    return round(w / scale), round(h / scale)
+
+live = {n: o for n, o in cur.items() if not o.get("disabled")}
+if live:
+    xs, ys = [], []
+    for n, o in live.items():
+        x, _, y = o["position"].partition("x")
+        xs.append(int(x)); ys.append(int(y))
+    # Only negatives are shifted. Forcing the corner to exactly 0,0 moved
+    # screens nobody had touched -- with the laptop panel switched off the
+    # layout legitimately starts at 1920, and sliding everything left because
+    # of that is a surprise, not a tidy-up.
+    dx, dy = min(min(xs), 0), min(min(ys), 0)
+    if dx or dy:
+        for n, o in live.items():
+            x, _, y = o["position"].partition("x")
+            o["position"] = "{}x{}".format(int(x) - dx, int(y) - dy)
+
+print(json.dumps(cur, indent=2, sort_keys=True))
+PY
+)" || exit 1
+
+    begin_pending
+    apply_json "$merged"
+}
+
 # ── placing ──────────────────────────────────────────────────────────────────
 #
 # `set OUTPUT position=...` moves one screen and touches nothing else, which is
@@ -577,7 +665,8 @@ if live:
     for n, o in live.items():
         x, y = (int(v) for v in o["position"].split("x"))
         xs.append(x); ys.append(y)
-    dx, dy = min(xs), min(ys)
+    # Only negatives, for the same reason as in `layout`.
+    dx, dy = min(min(xs), 0), min(min(ys), 0)
     if dx or dy:
         for n, o in live.items():
             x, y = (int(v) for v in o["position"].split("x"))
@@ -775,6 +864,7 @@ case "${1:-list}" in
     revert)      cmd_revert ;;
     generate)    cmd_generate ;;
     place)       shift; cmd_place "${1:-}" "${2:-}" ;;
+    layout)      shift; cmd_layout "${1:-}" ;;
     arrange)     cmd_arrange ;;
     cap)         shift; cmd_cap "${1:-}" ;;
     uncap)       cmd_uncap ;;
