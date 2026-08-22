@@ -171,6 +171,13 @@ Item {
         // adapter takes no cell at all.
         GridLayout {
             Layout.fillWidth: true
+            // A layout nested in another layout gets fillHeight *true* by
+            // default in Qt Quick Layouts, which is rarely what anyone means.
+            // Here it made this grid claim half the height even with both its
+            // cards hidden: the bluetooth popover shows no links at all, and it
+            // came out as an empty upper half with the bluetooth card squeezed
+            // into the bottom. The links are 66px tall; they should take 66px.
+            Layout.fillHeight: false
             columns: root.show === "all" ? 2 : 1
             rowSpacing: Theme.spaceMd
             columnSpacing: Theme.spaceMd
