@@ -284,6 +284,60 @@ Singleton {
         return false;
     }
 
+    // A staged layout, applied in one go. The Displays tab collects edits and
+    // sends them together so the screens move once, instead of jerking after
+    // every adjustment on the way to the arrangement somebody wanted.
+    function applyLayout(draft) {
+        root.runChange(["neobrix-monitors", "--revert-after", String(root.revertWindow),
+                        "layout", JSON.stringify(draft)]);
+    }
+
+    // What a monitor would look like with a staged edit applied, including the
+    // footprint it would then occupy -- changing the mode, the scale or the
+    // rotation all change how much room a screen takes, and the map has to draw
+    // the staged arrangement rather than the live one.
+    function derive(base, over) {
+        const o = {};
+        for (const k in base) o[k] = base[k];
+        if (!over) return o;
+
+        let w = base.width, h = base.height;
+        if (over.mode !== undefined) {
+            const res = String(over.mode).split("@")[0].split("x");
+            if (res.length === 2) {
+                w = parseInt(res[0]);
+                h = parseInt(res[1]);
+            }
+        }
+        const scale = over.scale !== undefined ? Number(over.scale) : base.scale;
+        const t = over.transform !== undefined ? Number(over.transform) : base.transform;
+        const turned = t % 2 === 1;
+
+        o.width = w;
+        o.height = h;
+        o.scale = scale;
+        o.transform = t;
+        o.logicalWidth = Math.round((turned ? h : w) / scale);
+        o.logicalHeight = Math.round((turned ? w : h) / scale);
+
+        if (over.position !== undefined) {
+            const p = String(over.position).split("x");
+            o.x = parseInt(p[0]);
+            o.y = parseInt(p[1]);
+        }
+        if (over.disabled !== undefined)
+            o.disabled = over.disabled === true || String(over.disabled) === "true";
+        if (over.vrr !== undefined)
+            o.vrr = Number(over.vrr) === 1;
+        if (over.mirror !== undefined)
+            o.mirrorOf = over.mirror === "none" ? "" : over.mirror;
+        if (over.mode !== undefined) {
+            const hz = parseFloat((String(over.mode).split("@")[1] || ""));
+            if (!isNaN(hz)) o.refreshRate = hz;
+        }
+        return o;
+    }
+
     function arrange() {
         root.runChange(["neobrix-monitors", "--revert-after", String(root.revertWindow),
                         "arrange"]);
