@@ -499,6 +499,53 @@ the parent). Every surface in the shell — bar islands, panels, chips, buttons,
 sliders, notification cards — is a `BrixCard`, which is why they all share the
 same physics: press a button and it travels into its own shadow.
 
+### Displays
+
+The control centre's **Displays** tab arranges the screens and remembers the
+arrangement. Everything it does is also a command, because the tab is a front end
+for `neobrix-monitors` and nothing else:
+
+```bash
+neobrix-monitors list                        # what is connected
+neobrix-monitors set eDP-1 scale=1.25        # change one output
+neobrix-monitors save "Desk"                 # remember this set of screens
+neobrix-monitors apply "Desk"                # put it back
+```
+
+**Drag to arrange.** Screens are drawn to scale in their real layout positions,
+and dragging one snaps its edges to its neighbours, so screens end up touching
+rather than a few pixels apart with dead space between them. Positions are always
+written explicitly — Hyprland's `auto` would re-place every output and rearrange
+a desk you had already arranged.
+
+**Nothing sticks until you say so.** A mode a monitor cannot display leaves a
+black screen, and a black screen cannot be clicked out of, so every change starts
+a countdown and puts itself back unless you press Keep. The timer runs in a
+detached process: it restores the display even if the shell that made the change
+has died. Pressing Keep on a set of screens that already has a profile updates
+that profile, because keeping a change is a statement about how those screens
+should be — otherwise it would last until the next reboot and then be undone.
+
+**Profiles follow the screens.** A profile is keyed on the set of outputs, using
+each one's connector and its make/model/serial, so plugging the same monitors
+back in brings back their layout. Two caveats worth knowing: a laptop panel often
+reports an empty serial, and **two identical external monitors are
+indistinguishable** except by which port they are in — so moving one between
+ports counts as a different arrangement.
+
+Saved profiles are written to `hypr/machine/monitors.lua`, which Hyprland reads
+while parsing its config. That is deliberate: applying the layout after login
+works, but the screens visibly snap into place a second late.
+
+Only `scale` values that divide the mode into whole pixels are offered — Hyprland
+rejects the rest outright — and the physical size the monitor reports is used to
+show its real DPI and suggest a scale, rather than guessing.
+
+Scaling, rotation, mirroring, VRR and switching an output off are per-screen. A
+screen that is off still appears in the tab (Hyprland's own monitor list drops
+it, which would leave no way to switch it back on), and the last screen still on
+cannot be switched off.
+
 ### Idle and power
 
 Left alone, the desktop dims at 10 minutes, locks at 15, blanks at 20 and — **on
@@ -642,6 +689,8 @@ Full list: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md). The essentials:
 | `neobrix-theme dawn\|dusk\|current` | apply the palette to terminals, GTK, Qt and KDE |
 | `neobrix-idle dark\|light\|suspend` | the idle steps hypridle calls; `suspend` refuses unless on battery |
 | `neobrix-power auto\|battery\|mains\|status` | match the power policy to the cable |
+| `neobrix-monitors list\|state\|set\|apply\|save\|profiles` | read and change the display layout |
+| `neobrix-monitors cap <hz>\|uncap` | limit the internal panel's refresh, and put it back |
 
 The shell is also scriptable:
 
