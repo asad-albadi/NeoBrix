@@ -57,6 +57,7 @@ UTILS=(
     iw                      # wifi bitrate in the connectivity panel; the figure
                             # is omitted rather than wrong when it is missing
     libnotify
+    btop                    # themed by neobrix-generate-btop
     imagemagick librsvg     # wallpaper generation
     python                  # screenshot geometry helpers, and the refresh-rate
                             # switch in neobrix-power

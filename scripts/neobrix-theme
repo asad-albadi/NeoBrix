@@ -440,6 +440,12 @@ fi
 # Regenerates the importable settings + dynamic fixes. These carry both schemes,
 # so they do not depend on $MODE; regenerated here only so a palette edit reaches
 # them. Dark Reader has no external config, so importing stays a manual step.
+# btop reads a theme file and a key in its own config; it skips itself when btop
+# is not installed.
+if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-btop" ]]; then
+    "$(dirname "$(readlink -f "$0")")/neobrix-generate-btop" "$MODE" >/dev/null 2>&1 || true
+fi
+
 if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-darkreader" ]]; then
     "$(dirname "$(readlink -f "$0")")/neobrix-generate-darkreader" >/dev/null 2>&1 || true
 fi

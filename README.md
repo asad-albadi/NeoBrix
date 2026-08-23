@@ -721,6 +721,7 @@ Full list: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md). The essentials:
 | `neobrix-wallpaper apply\|next\|prev\|theme\|list\|generate` | wallpaper selection |
 | `neobrix-generate-wallpapers [dir] [WxH]` | regenerate the built-in set |
 | `neobrix-theme dawn\|dusk\|current` | apply the palette to terminals, GTK, Qt and KDE |
+| `neobrix-generate-btop [dawn\|dusk]` | write btop's theme and point btop at it |
 | `neobrix-idle dark\|light\|suspend` | the idle steps hypridle calls; `suspend` refuses unless on battery |
 | `neobrix-idle inhibit on\|off\|toggle\|status` | keep awake: hold a logind lock so nothing dims, locks or suspends |
 | `neobrix-power auto\|battery\|mains\|status` | match the power policy to the cable |

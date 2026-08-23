@@ -813,6 +813,60 @@ STUB
     assert_has "it says so when systemd-inhibit is missing" "systemd-inhibit" "$out"
 }
 
+test_btop_theme() {
+    case_ "btop follows the palette without eating its own config"
+
+    local dir="$TMP/btop"
+    mkdir -p "$dir/bin" "$dir/cfg/btop"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/bin/btop"
+    chmod +x "$dir/bin/btop"
+
+    # A config with settings that are nobody else's business.
+    cat > "$dir/cfg/btop/btop.conf" <<'CONF'
+#? Config file for btop
+color_theme = "Default"
+theme_background = False
+update_ms = 2000
+proc_sorting = "cpu lazy"
+shown_boxes = "cpu mem net proc"
+CONF
+
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_CONFIG_HOME=$dir/cfg"
+               "$REPO/scripts/neobrix-generate-btop")
+
+    "${run[@]}" dusk >/dev/null 2>&1
+    local theme="$dir/cfg/btop/themes/neobrix.theme"
+    [[ -r $theme ]] && ok "a theme file is written" || bad "a theme file is written"
+
+    # The palette, not a copy of it: dusk's outline is what the boxes are drawn in.
+    local outline; outline="$(bash -c 'source '"$REPO"'/scripts/lib/palette.sh; neobrix_palette dusk; printf %s "$OUTLINE"')"
+    assert_has "the boxes use the palette outline" "theme[cpu_box]=\"#$outline\"" "$(cat "$theme")"
+
+    # Every key btop knows about should be present: a theme missing one falls
+    # back to a built-in colour for that element only, which looks like a bug
+    # rather than a theme.
+    local missing=0 k
+    for k in $(grep -ohE 'theme\[[a-z_]+\]' /usr/share/btop/themes/*.theme 2>/dev/null | sort -u); do
+        grep -qF "$k" "$theme" || missing=$((missing + 1))
+    done
+    assert_eq "no theme key is left unset" "0" "$missing"
+
+    # Pointed at, and nothing else disturbed.
+    local conf="$dir/cfg/btop/btop.conf"
+    assert_has "btop is pointed at the theme" 'color_theme = "neobrix"' "$(cat "$conf")"
+    assert_has "update_ms is left alone" 'update_ms = 2000' "$(cat "$conf")"
+    assert_has "proc_sorting is left alone" 'proc_sorting = "cpu lazy"' "$(cat "$conf")"
+    assert_eq "the key is replaced, not duplicated" "1" \
+              "$(grep -c '^color_theme' "$conf")"
+
+    # And it is a no-op where btop is not installed, rather than a stray file.
+    local bare="$TMP/btop-none"; mkdir -p "$bare/cfg" "$bare/bin"
+    env -i "PATH=$bare/bin" "HOME=$bare" "XDG_CONFIG_HOME=$bare/cfg" \
+        "$REPO/scripts/neobrix-generate-btop" dusk >/dev/null 2>&1 || true
+    [[ -e "$bare/cfg/btop" ]] && bad "it skips a machine with no btop" \
+                              || ok "it skips a machine with no btop"
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -827,6 +881,7 @@ if (( DO_LOCAL )); then
     test_monitors_cap_preserves
     test_monitors_layout
     test_idle_inhibit
+    test_btop_theme
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"
