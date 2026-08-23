@@ -440,6 +440,12 @@ fi
 # Regenerates the importable settings + dynamic fixes. These carry both schemes,
 # so they do not depend on $MODE; regenerated here only so a palette edit reaches
 # them. Dark Reader has no external config, so importing stays a manual step.
+# Zed reads a theme family from its own config directory; it skips itself when
+# Zed is not installed.
+if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-zed" ]]; then
+    "$(dirname "$(readlink -f "$0")")/neobrix-generate-zed" "$MODE" >/dev/null 2>&1 || true
+fi
+
 # btop reads a theme file and a key in its own config; it skips itself when btop
 # is not installed.
 if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-btop" ]]; then

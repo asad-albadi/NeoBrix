@@ -1,0 +1,391 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Builds the Neobrix themes for Zed and points Zed at them.
+#
+#      neobrix-generate-zed [dawn|dusk]
+#
+#  Colours come from lib/palette.sh — the same values the shell, terminals, GTK,
+#  Qt, the login screen, btop and the browser chrome are drawn from.
+#
+#  Unlike the Cursor/VS Code generator, this needs no extension: Zed reads theme
+#  families straight out of ~/.config/zed/themes, and one file can hold several
+#  variants. Both are written every time and both stay selectable from Zed's own
+#  theme picker, exactly as with the editor themes.
+#
+#  Zed's settings.json is edited *surgically* — only the value of "theme" is
+#  replaced, with the rest of the file preserved byte for byte. Zed ships its
+#  default settings full of explanatory comments and permits trailing commas;
+#  parsing and re-emitting it would silently delete all of that, which is not a
+#  reasonable price for setting one key.
+#
+#  `theme.mode` is left alone when it says "system". Neobrix already sets the
+#  desktop's colour-scheme preference when the palette switches, so a Zed left on
+#  "system" follows along on its own; overriding it would take away a choice that
+#  is already working.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+# shellcheck source=lib/palette.sh
+source "$HERE/lib/palette.sh"
+
+MODE="${1:-dawn}"
+[[ "$MODE" == "dawn" || "$MODE" == "dusk" ]] || {
+    echo "usage: neobrix-generate-zed [dawn|dusk]" >&2; exit 2; }
+
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+ZED="$CFG/zed"
+
+# Zed's binary is `zeditor` on Arch and `zed` elsewhere; the config directory
+# existing is the other signal that it is worth theming.
+if ! command -v zed >/dev/null 2>&1 && ! command -v zeditor >/dev/null 2>&1 \
+   && [[ ! -d $ZED ]]; then
+    exit 0
+fi
+
+# Both variants, emitted as one theme family.
+emit_family() {
+    local out="$1" dawn dusk
+    # By environment, not stdin: the heredoc below is python's stdin, so piping
+    # data in as well loses it silently.
+    dawn="$( neobrix_palette dawn; vars )"
+    dusk="$( neobrix_palette dusk; vars )"
+    NB_OUT="$out" NB_DAWN="$dawn" NB_DUSK="$dusk" python3 - <<'PY'
+import json, os, sys
+
+def parse(blob):
+    out = {}
+    for line in blob.splitlines():
+        line = line.strip()
+        if "=" in line:
+            k, _, v = line.partition("=")
+            out[k] = v
+    return out
+
+palettes = {"dawn": parse(os.environ["NB_DAWN"]),
+            "dusk": parse(os.environ["NB_DUSK"])}
+
+def theme(mode):
+    p = palettes[mode]
+    c = lambda k: "#" + p[k] + "ff"          # Zed wants 8-digit hex
+    light = mode == "dawn"
+
+    bg      = c("DESKTOP")     # behind everything
+    surface = c("BG")          # panels, cards
+    alt     = c("SURFACE_ALT")
+    deep    = c("BG_DEEP")
+    fg      = c("FG")
+    dim     = c("FG_DIM")
+    line    = c("OUTLINE")
+    accent  = c("PRIMARY")
+    ok      = c("SECONDARY")
+    lav     = c("TERTIARY")
+    pink    = c("PINK")
+    warn    = c("WARNING")
+    err     = c("ERROR")
+    info    = c("INFO")
+    ink     = c("ON_ACCENT")
+
+    # A translucent wash of a colour, for the "…background" variants Zed uses to
+    # tint a whole row without drowning the text on it.
+    def wash(hex8, alpha="22"):
+        return hex8[:7] + alpha
+
+    style = {
+        "background": bg,
+        "background.appearance": "opaque",
+        "surface.background": surface,
+        "elevated_surface.background": alt,
+
+        # The chunky outline is the whole point of the design language, so every
+        # border Zed offers gets it rather than a subtle tint of the background.
+        "border": line,
+        "border.variant": line,
+        "border.focused": accent,
+        "border.selected": accent,
+        "border.disabled": dim,
+        "border.transparent": "#00000000",
+        "pane.focused_border": accent,
+        "pane_group.border": line,
+
+        "element.background": alt,
+        "element.hover": deep,
+        "element.active": accent,
+        "element.selected": deep,
+        "element.disabled": wash(dim, "33"),
+        "ghost_element.background": "#00000000",
+        "ghost_element.hover": deep,
+        "ghost_element.active": accent,
+        "ghost_element.selected": deep,
+        "ghost_element.disabled": wash(dim, "33"),
+        "drop_target.background": wash(accent, "44"),
+
+        "text": fg,
+        "text.muted": dim,
+        "text.placeholder": dim,
+        "text.disabled": dim,
+        "text.accent": accent,
+        "icon": fg,
+        "icon.muted": dim,
+        "icon.placeholder": dim,
+        "icon.disabled": dim,
+        "icon.accent": accent,
+        "link_text.hover": accent,
+
+        "status_bar.background": alt,
+        "title_bar.background": alt,
+        "title_bar.inactive_background": surface,
+        "toolbar.background": bg,
+        "tab_bar.background": alt,
+        "tab.active_background": bg,
+        "tab.inactive_background": alt,
+        "panel.background": surface,
+        "panel.focused_border": accent,
+        "panel.indent_guide": wash(dim, "44"),
+        "panel.indent_guide_active": accent,
+        "panel.indent_guide_hover": accent,
+
+        "editor.background": bg,
+        "editor.foreground": fg,
+        "editor.gutter.background": bg,
+        "editor.line_number": wash(dim, "88"),
+        "editor.active_line_number": accent,
+        "editor.active_line.background": wash(accent, "11"),
+        "editor.highlighted_line.background": wash(accent, "22"),
+        "editor.subheader.background": alt,
+        "editor.invisible": wash(dim, "66"),
+        "editor.wrap_guide": wash(dim, "33"),
+        "editor.active_wrap_guide": wash(dim, "66"),
+        "editor.indent_guide": wash(dim, "33"),
+        "editor.indent_guide_active": wash(accent, "88"),
+        "editor.document_highlight.read_background": wash(info, "33"),
+        "editor.document_highlight.write_background": wash(warn, "33"),
+        "editor.document_highlight.bracket_background": wash(accent, "44"),
+        "search.match_background": wash(warn, "55"),
+
+        "scrollbar.track.background": "#00000000",
+        "scrollbar.track.border": "#00000000",
+        "scrollbar.thumb.background": wash(dim, "55"),
+        "scrollbar.thumb.hover_background": wash(dim, "88"),
+        "scrollbar.thumb.border": "#00000000",
+
+        # The integrated terminal is given the same sixteen colours kitty is, so
+        # a shell inside Zed and a shell outside it are the same shell.
+        "terminal.background": bg,
+        "terminal.foreground": fg,
+        "terminal.bright_foreground": fg,
+        "terminal.dim_foreground": dim,
+        "terminal.ansi.background": bg,
+        "terminal.ansi.black": c("N_BLACK"),
+        "terminal.ansi.red": c("N_RED"),
+        "terminal.ansi.green": c("N_GREEN"),
+        "terminal.ansi.yellow": c("N_YELLOW"),
+        "terminal.ansi.blue": c("N_BLUE"),
+        "terminal.ansi.magenta": c("N_MAGENTA"),
+        "terminal.ansi.cyan": c("N_CYAN"),
+        "terminal.ansi.white": c("N_WHITE"),
+        "terminal.ansi.bright_black": c("B_BLACK"),
+        "terminal.ansi.bright_red": c("B_RED"),
+        "terminal.ansi.bright_green": c("B_GREEN"),
+        "terminal.ansi.bright_yellow": c("B_YELLOW"),
+        "terminal.ansi.bright_blue": c("B_BLUE"),
+        "terminal.ansi.bright_magenta": c("B_MAGENTA"),
+        "terminal.ansi.bright_cyan": c("B_CYAN"),
+        "terminal.ansi.bright_white": c("B_WHITE"),
+        "terminal.ansi.dim_black": c("N_BLACK"),
+        "terminal.ansi.dim_red": c("N_RED"),
+        "terminal.ansi.dim_green": c("N_GREEN"),
+        "terminal.ansi.dim_yellow": c("N_YELLOW"),
+        "terminal.ansi.dim_blue": c("N_BLUE"),
+        "terminal.ansi.dim_magenta": c("N_MAGENTA"),
+        "terminal.ansi.dim_cyan": c("N_CYAN"),
+        "terminal.ansi.dim_white": c("N_WHITE"),
+
+        "accents": [accent, ok, lav, pink, info, warn],
+    }
+
+    # The status families: each is a colour plus a wash for the row and a border.
+    for name, col in (("created", ok), ("modified", warn), ("deleted", err),
+                      ("renamed", info), ("conflict", warn), ("error", err),
+                      ("warning", warn), ("info", info), ("success", ok),
+                      ("hint", lav), ("predictive", dim), ("hidden", dim),
+                      ("ignored", dim), ("unreachable", dim)):
+        style[name] = col
+        style[f"{name}.background"] = wash(col, "22")
+        style[f"{name}.border"] = col
+
+    # Collaborators' cursors and selections.
+    style["players"] = [
+        {"cursor": accent, "background": accent, "selection": wash(accent, "3d")},
+        {"cursor": ok,     "background": ok,     "selection": wash(ok, "3d")},
+        {"cursor": lav,    "background": lav,    "selection": wash(lav, "3d")},
+        {"cursor": pink,   "background": pink,   "selection": wash(pink, "3d")},
+        {"cursor": info,   "background": info,   "selection": wash(info, "3d")},
+        {"cursor": warn,   "background": warn,   "selection": wash(warn, "3d")},
+    ]
+
+    # Syntax. Deliberately a small palette used consistently rather than a
+    # colour per token type: the design leans on weight and structure, and code
+    # that looks like a fruit salad is the opposite of that.
+    def s(color, style_=None, weight=None):
+        d = {"color": color}
+        if style_:
+            d["font_style"] = style_
+        if weight:
+            d["font_weight"] = weight
+        return d
+
+    style["syntax"] = {
+        "comment":            s(dim, "italic"),
+        "comment.doc":        s(dim, "italic"),
+        "string":             s(ok),
+        "string.escape":      s(pink),
+        "string.regex":       s(pink),
+        "string.special":     s(pink),
+        "string.special.symbol": s(pink),
+        "number":             s(lav),
+        "boolean":            s(lav, None, 700),
+        "constant":           s(lav),
+        "keyword":            s(accent, None, 700),
+        "operator":           s(pink),
+        "punctuation":        s(dim),
+        "punctuation.bracket": s(dim),
+        "punctuation.delimiter": s(dim),
+        "punctuation.special": s(pink),
+        "punctuation.list_marker": s(accent),
+        "function":           s(info, None, 700),
+        "function.method":    s(info),
+        "function.definition": s(info, None, 700),
+        "type":               s(warn),
+        "type.builtin":       s(warn),
+        "constructor":        s(warn),
+        "variable":           s(fg),
+        "variable.member":    s(fg),
+        "variable.parameter": s(fg),
+        "variable.special":   s(pink),
+        "property":           s(fg),
+        "attribute":          s(lav),
+        "tag":                s(accent),
+        "label":              s(accent),
+        "namespace":          s(warn),
+        "primary":            s(fg),
+        "predictive":         s(dim, "italic"),
+        "emphasis":           s(accent, "italic"),
+        "emphasis.strong":    s(accent, None, 700),
+        "title":              s(fg, None, 700),
+        "link_text":          s(info, "italic"),
+        "link_uri":           s(ok),
+        "hint":               s(lav),
+        "embedded":           s(fg),
+        "enum":               s(warn),
+        "variant":            s(warn),
+    }
+
+    return {
+        "name": "Neobrix " + ("Dawn" if light else "Dusk"),
+        "appearance": "light" if light else "dark",
+        "style": style,
+    }
+
+doc = {
+    "$schema": "https://zed.dev/schema/themes/v0.2.0.json",
+    "name": "Neobrix",
+    "author": "Neobrix (generated by neobrix-generate-zed)",
+    "themes": [theme("dawn"), theme("dusk")],
+}
+
+with open(os.environ["NB_OUT"], "w") as f:
+    json.dump(doc, f, indent=2)
+    f.write("\n")
+PY
+}
+
+# Every palette variable the theme builder reads, as KEY=VALUE.
+vars() {
+    local k
+    for k in DESKTOP BG SURFACE_ALT BG_DEEP FG FG_DIM OUTLINE PRIMARY SECONDARY \
+             TERTIARY PINK WARNING ERROR INFO ON_ACCENT \
+             N_BLACK N_RED N_GREEN N_YELLOW N_BLUE N_MAGENTA N_CYAN N_WHITE \
+             B_BLACK B_RED B_GREEN B_YELLOW B_BLUE B_MAGENTA B_CYAN B_WHITE; do
+        printf '%s=%s\n' "$k" "${!k}"
+    done
+}
+
+mkdir -p "$ZED/themes"
+emit_family "$ZED/themes/neobrix.json.tmp"
+mv "$ZED/themes/neobrix.json.tmp" "$ZED/themes/neobrix.json"
+
+# ── point Zed at them, without rewriting the file ────────────────────────────
+SETTINGS="$ZED/settings.json"
+MODE="$MODE" NB_SETTINGS="$SETTINGS" python3 <<'PY'
+import os, pathlib, re
+
+path = pathlib.Path(os.environ["NB_SETTINGS"])
+mode = os.environ["MODE"]
+want_light, want_dark = "Neobrix Dawn", "Neobrix Dusk"
+
+block = ('{\n    "mode": "%s",\n    "light": "%s",\n    "dark": "%s"\n  }'
+         % ("light" if mode == "dawn" else "dark", want_light, want_dark))
+
+if not path.exists() or not path.stat().st_size:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{\n  "theme": %s\n}\n' % block)
+    print("  wrote %s" % path)
+    raise SystemExit(0)
+
+raw = path.read_text()
+m = re.search(r'"theme"\s*:\s*', raw)
+if not m:
+    # No theme key: add one after the opening brace, touching nothing else.
+    brace = raw.find("{")
+    if brace < 0:
+        print("  %s has no JSON object in it; left alone" % path)
+        raise SystemExit(0)
+    new = raw[:brace + 1] + '\n  "theme": %s,' % block + raw[brace + 1:]
+    path.write_text(new)
+    print("  added a theme setting to %s" % path)
+    raise SystemExit(0)
+
+start = m.end()
+if raw[start] == "{":
+    # Balanced scan, string-aware, so a brace inside a name cannot end it early.
+    depth, i, in_str, esc = 0, start, False, False
+    while i < len(raw):
+        ch = raw[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                i += 1
+                break
+        i += 1
+    end = i
+else:
+    # A bare string value: "theme": "Gruvbox Dark"
+    end = raw.index('"', raw.index('"', start) + 1) + 1
+
+# Keep an explicit "system" preference: the desktop's colour-scheme already
+# follows the palette, so Zed on "system" follows it too.
+old = raw[start:end]
+if re.search(r'"mode"\s*:\s*"system"', old):
+    keep = block.replace('"mode": "light"', '"mode": "system"') \
+                .replace('"mode": "dark"', '"mode": "system"')
+else:
+    keep = block
+
+path.write_text(raw[:start] + keep + raw[end:])
+print("  %s -> Neobrix Dawn / Dusk" % path)
+PY
+
+printf 'wrote %s (dawn and dusk)\n' "$ZED/themes/neobrix.json"

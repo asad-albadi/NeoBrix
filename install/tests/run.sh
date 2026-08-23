@@ -867,6 +867,84 @@ CONF
                               || ok "it skips a machine with no btop"
 }
 
+test_zed_theme() {
+    case_ "Zed gets both palettes, and keeps its own settings file"
+
+    local dir="$TMP/zed"
+    mkdir -p "$dir/cfg/zed" "$dir/bin"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/bin/zeditor"
+    chmod +x "$dir/bin/zeditor"
+
+    # Zed ships settings full of comments and permits trailing commas. Parsing
+    # and re-emitting would delete every comment in here, which is too high a
+    # price for setting one key.
+    cat > "$dir/cfg/zed/settings.json" <<'JSON'
+// Zed settings
+//
+// For information on how to configure Zed, see the docs.
+{
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
+  "theme": {
+    "mode": "system",
+    "light": "Gruvbox Light",
+    "dark": "Gruvbox Dark",
+  },
+}
+JSON
+
+    local run=(env "PATH=$dir/bin:$PATH" "XDG_CONFIG_HOME=$dir/cfg"
+               "$REPO/scripts/neobrix-generate-zed")
+    "${run[@]}" dusk >/dev/null 2>&1
+
+    local theme="$dir/cfg/zed/themes/neobrix.json"
+    [[ -r $theme ]] && ok "a theme family is written" || bad "a theme family is written"
+
+    # Both variants, every time, so both stay selectable in Zed's own picker.
+    local names
+    names="$(python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+print(" ".join("%s:%s" % (t["name"], t["appearance"]) for t in d["themes"]))' "$theme" 2>&1)"
+    assert_has "the light variant is there" "Neobrix Dawn:light" "$names"
+    assert_has "the dark variant is there" "Neobrix Dusk:dark" "$names"
+
+    # The palette, not a copy: dusk's outline is what every border is drawn in.
+    local outline; outline="$(bash -c 'source '"$REPO"'/scripts/lib/palette.sh; neobrix_palette dusk; printf %s "$OUTLINE"')"
+    local border; border="$(python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+t=[x for x in d["themes"] if x["appearance"]=="dark"][0]
+print(t["style"]["border"])' "$theme" 2>&1)"
+    assert_eq "borders use the palette outline" "#${outline}ff" "$border"
+
+    # Comments and unrelated settings survive; only the theme names change.
+    local conf="$dir/cfg/zed/settings.json"
+    assert_has "the file's comments survive" "// Zed settings" "$(cat "$conf")"
+    assert_has "unrelated settings survive" '"buffer_font_size": 15' "$(cat "$conf")"
+    assert_has "the light name is set" '"light": "Neobrix Dawn"' "$(cat "$conf")"
+    assert_has "the dark name is set" '"dark": "Neobrix Dusk"' "$(cat "$conf")"
+    # An explicit "system" is a working preference -- the desktop's colour-scheme
+    # already follows the palette -- so it is not overridden.
+    assert_has "an explicit system mode is left alone" '"mode": "system"' "$(cat "$conf")"
+
+    # But a pinned mode is synced, or Zed would sit on the wrong variant.
+    python3 - "$conf" <<'PY'
+import sys
+p = sys.argv[1]
+open(p, "w").write(open(p).read().replace('"mode": "system"', '"mode": "light"'))
+PY
+    "${run[@]}" dusk >/dev/null 2>&1
+    assert_has "a pinned mode follows the palette" '"mode": "dark"' "$(cat "$conf")"
+
+    # And nothing at all on a machine with neither Zed nor its config.
+    local bare="$TMP/zed-none"; mkdir -p "$bare/cfg" "$bare/bin"
+    env -i "PATH=$bare/bin" "HOME=$bare" "XDG_CONFIG_HOME=$bare/cfg" \
+        "$REPO/scripts/neobrix-generate-zed" dusk >/dev/null 2>&1 || true
+    [[ -e "$bare/cfg/zed" ]] && bad "it skips a machine without Zed" \
+                             || ok "it skips a machine without Zed"
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -882,6 +960,7 @@ if (( DO_LOCAL )); then
     test_monitors_layout
     test_idle_inhibit
     test_btop_theme
+    test_zed_theme
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"
