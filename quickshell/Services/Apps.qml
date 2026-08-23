@@ -56,14 +56,36 @@ Singleton {
         root.usage = u;
         usageFile.setText(JSON.stringify(u));
 
+        // A desktop entry with Terminal=true is a TUI -- btop, htop, ncdu, a
+        // text editor -- and its Exec line is not a command that can stand on
+        // its own: run it directly and it gets no terminal, so it either exits
+        // at once or runs invisibly. It has to be wrapped in one, and Neobrix's
+        // terminal is kitty.
+        //
+        // Field codes are dropped. They are placeholders for files and URLs the
+        // launcher has none of, and kitty would take "%U" as an argument.
+        const terminalCmd = entry.runInTerminal
+            ? ["kitty", "-e"].concat((entry.command || []).filter(a => !a.startsWith("%")))
+            : null;
+
         // DesktopEntry.execute() forks from the shell, so the application ends up
         // inside neobrix-shell.service's cgroup and dies with it — restarting the
         // shell would close the user's windows. Under uwsm, hand the desktop id to
         // `uwsm app` instead so each application gets its own systemd scope, which
         // is also what the Hyprland exec binds do.
         if (root.underUwsm) {
-            const id = entry.id.endsWith(".desktop") ? entry.id : entry.id + ".desktop";
-            Quickshell.execDetached(["uwsm", "app", "--", id]);
+            if (terminalCmd) {
+                // The command rather than the id: `uwsm app -T` would work too,
+                // but it resolves the terminal through xdg-terminal-exec, and
+                // "whatever the system thinks a terminal is" is not the same
+                // promise as "kitty".
+                Quickshell.execDetached(["uwsm", "app", "--"].concat(terminalCmd));
+            } else {
+                const id = entry.id.endsWith(".desktop") ? entry.id : entry.id + ".desktop";
+                Quickshell.execDetached(["uwsm", "app", "--", id]);
+            }
+        } else if (terminalCmd) {
+            Quickshell.execDetached(terminalCmd);
         } else {
             entry.execute();
         }
