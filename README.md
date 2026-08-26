@@ -26,6 +26,21 @@ On CachyOS or Arch:
 curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bootstrap.sh | bash
 ```
 
+### Features
+
+- Complete Quickshell desktop: bar, launcher, workspace previews, calendar,
+  clipboard, session controls, notifications, media and level OSDs
+- Unified control center for system resources, connectivity, displays and local
+  Codex, Claude Code and Cursor account usage
+- Two live palettes — `dawn` and `dusk` — with generated wallpapers and themes
+- Hyprland workflow with scratchpad, window/workspace controls, lock, idle and
+  suspend integration
+- Styled `pacman` output and a NeoBrix package-update flow
+
+**Themed applications:** Quickshell, Hyprland, hyprlock, ReGreet, GTK 3/4,
+Qt 5/6, KDE apps, Kitty, Fish, Fastfetch, btop, Zen Browser, Dark Reader,
+Cursor, VS Code and Zed.
+
 Or read it first, which is the better habit with any `curl | bash`:
 
 ```bash
@@ -156,35 +171,41 @@ install those two from the AUR yourself. See [Dependencies](#dependencies).
 
 ## Screenshots
 
-![A tour of Neobrix: the launcher filtering as it is typed into, the audio and
-power controls opening under their own indicators, the calendar under the clock,
-the control centre, and the whole desktop changing from the dusk palette to dawn
-while it is open](docs/screenshots/tour.gif)
+Every view below is shown in both palettes. Network and account identifiers in
+the public captures are intentionally obscured.
 
-*One pass through it: launcher, the per-indicator controls, calendar, control
-centre, and the palette changing from `dusk` to `dawn` live.*
-
-Stills in [`docs/screenshots/`](docs/screenshots). Regenerate with
-`neobrix-screenshot screen` (writes to `~/Pictures/Screenshots`).
-
-| | |
-|---|---|
-| ![greeter dawn](docs/screenshots/greeter-dawn.png) | ![greeter dusk](docs/screenshots/greeter-dusk.png) |
-| **Login screen** — greetd + ReGreet, themed from the palette | the same greeter in the `dusk` palette |
-| ![desktop](docs/screenshots/desktop.png) | ![launcher](docs/screenshots/launcher.png) |
-| **Desktop** — bar and generated wallpaper | **Launcher** — fuzzy search over `.desktop` entries |
-| ![control center](docs/screenshots/control-center.png) | ![calendar](docs/screenshots/calendar.png) |
-| **Control center** — audio, media, specs, resources; connectivity is its own tab | **Calendar** — clock, date, month navigation |
-| ![connectivity](docs/screenshots/connectivity.png) | ![notifications](docs/screenshots/notifications.png) |
-| **Connectivity** — wired link, Wi-Fi and Bluetooth. Joining a secured network opens a passphrase field in the row, as shown. Network names and the address are covered by blocks in this screenshot, not by the shell | **Notification centre** — history, do-not-disturb, clear all |
-| ![dusk](docs/screenshots/dusk.png) | ![lock](docs/screenshots/lock.png) |
-| **Neobrix Dark** — the same panel in the `dusk` palette | **Lock screen** — hyprlock, themed from the same palette |
-| ![cursor dawn](docs/screenshots/cursor-dawn.png) | ![cursor dusk](docs/screenshots/cursor-dusk.png) |
-| **Cursor** in `dawn` — the editor theme is generated from the same palette | **Cursor** in `dusk` — switching the desktop palette switches the editor |
-| ![fastfetch dawn](docs/screenshots/fastfetch-dawn.png) | ![fastfetch dusk](docs/screenshots/fastfetch-dusk.png) |
-| **Terminal greeting** in `dawn` — grouped `fastfetch` readout | the same greeting in `dusk`, recoloured by the terminal palette |
-| ![dark reader](docs/screenshots/darkreader.png) | |
-| **Dark Reader** — an ordinary website recoloured from the same palette, via the generated settings in [`theming/darkreader/`](theming/darkreader) | |
+| Dawn | Dusk |
+|:---:|:---:|
+| ![NeoBrix dawn desktop](docs/screenshots/shell-desktop-dawn.png) | ![NeoBrix dusk desktop](docs/screenshots/shell-desktop-dusk.png) |
+| **Desktop** | **Desktop** |
+| ![Launcher in dawn](docs/screenshots/shell-launcher-dawn.png) | ![Launcher in dusk](docs/screenshots/shell-launcher-dusk.png) |
+| **Launcher** | **Launcher** |
+| ![Workspace preview in dawn](docs/screenshots/shell-workspaces-dawn.png) | ![Workspace preview in dusk](docs/screenshots/shell-workspaces-dusk.png) |
+| **Workspace window previews** | **Workspace window previews** |
+| ![System control center in dawn](docs/screenshots/control-system-dawn.png) | ![System control center in dusk](docs/screenshots/control-system-dusk.png) |
+| **System and media** | **System and media** |
+| ![Connectivity in dawn](docs/screenshots/control-connectivity-dawn.png) | ![Connectivity in dusk](docs/screenshots/control-connectivity-dusk.png) |
+| **Wi-Fi, Ethernet and Bluetooth** | **Wi-Fi, Ethernet and Bluetooth** |
+| ![Display controls in dawn](docs/screenshots/control-displays-dawn.png) | ![Display controls in dusk](docs/screenshots/control-displays-dusk.png) |
+| **Displays** | **Displays** |
+| ![AI account usage in dawn](docs/screenshots/control-ai-dawn.png) | ![AI account usage in dusk](docs/screenshots/control-ai-dusk.png) |
+| **AI usage and subscriptions** | **AI usage and subscriptions** |
+| ![Notification center in dawn](docs/screenshots/control-notifications-dawn.png) | ![Notification center in dusk](docs/screenshots/control-notifications-dusk.png) |
+| **Notifications** | **Notifications** |
+| ![Calendar in dawn](docs/screenshots/shell-calendar-dawn.png) | ![Calendar in dusk](docs/screenshots/shell-calendar-dusk.png) |
+| **Calendar** | **Calendar** |
+| ![Clipboard history in dawn](docs/screenshots/shell-clipboard-dawn.png) | ![Clipboard history in dusk](docs/screenshots/shell-clipboard-dusk.png) |
+| **Clipboard history** | **Clipboard history** |
+| ![Session menu in dawn](docs/screenshots/shell-session-dawn.png) | ![Session menu in dusk](docs/screenshots/shell-session-dusk.png) |
+| **Session menu** | **Session menu** |
+| ![Zen Browser in dawn](docs/screenshots/zen-dawn.png) | ![Zen Browser in dusk](docs/screenshots/zen-dusk.png) |
+| **Zen Browser on the NeoBrix repository** | **Zen Browser on the NeoBrix repository** |
+| ![Cursor in dawn](docs/screenshots/cursor-dawn.png) | ![Cursor in dusk](docs/screenshots/cursor-dusk.png) |
+| **Cursor** | **Cursor** |
+| ![Zed in dawn](docs/screenshots/zed-dawn.png) | ![Zed in dusk](docs/screenshots/zed-dusk.png) |
+| **Zed** | **Zed** |
+| ![Fish and Fastfetch in dawn](docs/screenshots/terminal-dawn.png) | ![Fish and Fastfetch in dusk](docs/screenshots/terminal-dusk.png) |
+| **Fish greeting and Fastfetch** | **Fish greeting and Fastfetch** |
 
 ## Architecture
 
@@ -411,11 +432,9 @@ until it restarts.
 
 ### Dark Reader
 
-![Dark Reader rendering GitHub in the Neobrix dusk palette](docs/screenshots/darkreader.png)
-
-*GitHub in Zen with the generated Dark Reader settings imported: page background,
-surfaces, borders and links all come from the `dusk` palette, so a site Neobrix
-knows nothing about still matches the desktop around it.*
+The Zen screenshots above show GitHub rendered with the generated Dark Reader
+settings: page background, surfaces, borders and links all follow the active
+palette.
 
 Dark Reader keeps its configuration in extension storage (IndexedDB inside the
 browser profile) and has no managed-storage support, so nothing can push settings
