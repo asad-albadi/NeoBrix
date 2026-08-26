@@ -199,6 +199,19 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: Hypr.focusWorkspace(slot.modelData.id)
                 }
+
+                WorkspacePreview {
+                    anchorTarget: slot
+                    windows: slot.wins
+                    workspaceId: slot.modelData.id
+                    triggerHovered: mouse.containsMouse
+                    onWindowChosen: toplevel => {
+                        if (toplevel && toplevel.address)
+                            Hypr.focusWindow(toplevel.address);
+                        else
+                            Hypr.focusWorkspace(slot.modelData.id);
+                    }
+                }
             }
         }
 
