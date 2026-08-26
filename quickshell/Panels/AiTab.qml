@@ -11,7 +11,15 @@ import qs.Services
 Item {
     id: root
     property bool active: false
+    property double nowMs: Date.now()
     onActiveChanged: { if (active) Ai.refresh(); }
+
+    Timer {
+        interval: 30000
+        running: root.active
+        repeat: true
+        onTriggered: root.nowMs = Date.now()
+    }
 
     function compact(value) {
         const n = Number(value || 0);
@@ -20,15 +28,24 @@ Item {
         return String(n);
     }
 
-    function resetText(value) {
+    function resetMoment(value) {
         if (!value) return "";
         const when = new Date(value);
         if (isNaN(when.getTime())) return "";
-        const delta = when.getTime() - Date.now();
-        if (delta <= 0) return "resetting";
-        const hours = Math.ceil(delta / 3600000);
-        if (hours < 24) return "resets in " + hours + "h";
-        return "resets in " + Math.ceil(hours / 24) + "d";
+        return Qt.formatDateTime(when, "ddd d MMM · h:mm AP").toUpperCase();
+    }
+
+    function resetCountdown(value) {
+        if (!value) return "";
+        const when = new Date(value);
+        if (isNaN(when.getTime())) return "";
+        const minutes = Math.max(0, Math.ceil((when.getTime() - root.nowMs) / 60000));
+        if (minutes === 0) return "RESETTING";
+        const days = Math.floor(minutes / 1440);
+        const hours = Math.floor((minutes % 1440) / 60);
+        const mins = minutes % 60;
+        const clock = hours + ":" + String(mins).padStart(2, "0");
+        return "RESET IN " + (days > 0 ? days + "D " : "") + clock;
     }
 
     ColumnLayout {
@@ -203,13 +220,25 @@ Item {
                                         value: modelData.usedPercent / 100
                                         accent: card.providerColor
                                     }
-                                    Text {
+                                    ColumnLayout {
                                         Layout.alignment: Qt.AlignRight
-                                        text: root.resetText(modelData.resetsAt)
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: Theme.fontXs
-                                        font.weight: Theme.weightBold
-                                        color: Theme.foregroundDim
+                                        spacing: 0
+                                        Text {
+                                            Layout.alignment: Qt.AlignRight
+                                            text: root.resetMoment(modelData.resetsAt)
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.fontXs
+                                            font.weight: Theme.weightBold
+                                            color: Theme.foregroundDim
+                                        }
+                                        Text {
+                                            Layout.alignment: Qt.AlignRight
+                                            text: root.resetCountdown(modelData.resetsAt)
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.fontXs
+                                            font.weight: Theme.weightHeavy
+                                            color: card.providerColor
+                                        }
                                     }
                                 }
                             }
