@@ -813,6 +813,15 @@ STUB
     assert_has "it says so when systemd-inhibit is missing" "systemd-inhibit" "$out"
 }
 
+test_idle_resume() {
+    case_ "resume confirms a fresh DPMS transition"
+
+    local out
+    out="$(NEOBRIX_DRY_RUN=1 "$REPO/scripts/neobrix-idle" light 2>&1)"
+    assert_eq "DPMS readiness is observed instead of guessed from a timer" \
+        $'would run: brightnessctl -q -r\nwould confirm: dpms off\nwould confirm: dpms on' "$out"
+}
+
 test_btop_theme() {
     case_ "btop follows the palette without eating its own config"
 
@@ -959,6 +968,7 @@ if (( DO_LOCAL )); then
     test_monitors_cap_preserves
     test_monitors_layout
     test_idle_inhibit
+    test_idle_resume
     test_btop_theme
     test_zed_theme
 fi

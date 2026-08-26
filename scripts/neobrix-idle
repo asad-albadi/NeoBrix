@@ -38,6 +38,60 @@ dpms() {
     hyprctl eval "hl.dispatch(hl.dsp.dpms(\"$1\"))"
 }
 
+internal_panel_ready() {
+    local want=$1 drm_enabled=true hypr_ready=false
+
+    # DRM is the final authority on whether the connector has a live CRTC.
+    # A machine without an internal panel (a desktop) has nothing to check here.
+    local connector enabled
+    for connector in /sys/class/drm/card*-eDP-*; do
+        [[ -d $connector ]] || continue
+        enabled=$(<"$connector/enabled")
+        [[ $enabled == enabled ]] && drm_enabled=true || drm_enabled=false
+        break
+    done
+
+    # Hyprland's state must agree. `monitors all` retains disabled outputs, so
+    # select the internal panel explicitly and require a real mode when waking.
+    if hyprctl -j monitors all 2>/dev/null | python -c '
+import json, sys
+want = sys.argv[1] == "on"
+monitors = json.load(sys.stdin)
+panels = [m for m in monitors if m.get("name", "").startswith("eDP-")]
+if not panels:
+    panels = [m for m in monitors if not m.get("disabled")]
+ok = bool(panels) and all(
+    bool(m.get("dpmsStatus")) == want
+    and (not want or (not m.get("disabled") and m.get("width", 0) > 0 and m.get("height", 0) > 0))
+    for m in panels
+)
+raise SystemExit(0 if ok else 1)
+' "$want"; then
+        hypr_ready=true
+    fi
+
+    if [[ $want == on ]]; then
+        $hypr_ready && $drm_enabled
+    else
+        $hypr_ready
+    fi
+}
+
+set_dpms_confirmed() {
+    local want=$1 attempt
+    if [[ -n ${NEOBRIX_DRY_RUN:-} ]]; then
+        printf 'would confirm: dpms %s\n' "$want"
+        return 0
+    fi
+    for ((attempt = 0; attempt < 40; attempt++)); do
+        dpms "$want" >/dev/null 2>&1 || true
+        internal_panel_ready "$want" && return 0
+        sleep 0.05
+    done
+    printf 'neobrix-idle: internal panel did not confirm DPMS %s\n' "$want" >&2
+    return 1
+}
+
 HERE="$(dirname "$(readlink -f "$0")")"
 # shellcheck source=lib/power.sh
 source "$HERE/lib/power.sh"
@@ -96,7 +150,6 @@ case ${1:-} in
         run dpms off || true
         ;;
     light)
-        run dpms on || true
         if command -v brightnessctl >/dev/null 2>&1; then
             # -r restores what the dim step saved on the way down, which is the
             # brightness the user actually chose. If there is nothing saved --
@@ -108,6 +161,12 @@ case ${1:-} in
                 brightnessctl -q set 50%
             fi
         fi
+        # A successful command is not proof that the resumed output consumed
+        # it: Hyprland can acknowledge DPMS against its pre-suspend state while
+        # the CRTC is still being recreated. Force and observe a fresh state
+        # transition, then return only once Hyprland and DRM both say it is on.
+        set_dpms_confirmed off || true
+        set_dpms_confirmed on || true
         ;;
     suspend)
         if neobrix_on_battery; then
