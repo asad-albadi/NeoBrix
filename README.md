@@ -26,45 +26,6 @@ On CachyOS or Arch:
 curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bootstrap.sh | bash
 ```
 
-### Features
-
-- A complete Quickshell desktop: floating top bar, application launcher,
-  notification center, calendar, clipboard history, system tray and session menu
-- Neo-brutalist `dawn` and `dusk` palettes applied across the shell and supported
-  applications with one command
-- Workspace indicators with application icons, window counts, scrolling and
-  still-frame window previews on hover
-- Control center for audio, microphone, networking, Bluetooth, displays, power,
-  system resources and hardware information
-- AI usage dashboard for Codex, Claude Code and Cursor, including subscription
-  state, quota usage and exact reset countdowns where providers expose them
-- Per-monitor layout editing, positioning, scaling, rotation, mirroring, refresh
-  rates and reusable display profiles
-- Media controls, MPRIS integration, volume/brightness OSDs and configurable
-  power profiles
-- Screenshots, region capture, annotation and GPU-accelerated screen recording
-- Battery-aware refresh-rate and idle policies, keep-awake mode, lock screen and
-  reliable suspend/resume handling
-- Hyprland Lua configuration with generated keybindings, workspace rules and
-  machine-local overrides
-- Optional themed ReGreet login screen with a tested TTY recovery path and
-  reversible activation
-- Reproducible Pacman and Paru presentation, installation and upgrade workflow
-
-### Themed applications
-
-- **Terminals and shell:** Kitty, Alacritty, Fish and Fastfetch
-- **Editors:** Cursor, Visual Studio Code and Zed
-- **Browser:** Zen Browser; websites can use the generated Dark Reader palettes
-- **System tools:** btop and Hyprlock
-- **Login:** ReGreet, when the optional Neobrix greeter is enabled
-- **GTK:** GTK 3, GTK 4 and libadwaita applications
-- **Qt/KDE:** Qt 5, Qt 6 and KDE applications, including Dolphin
-
-Application-specific themes are generated only when the corresponding
-application is installed; toolkit palettes cover compatible applications without
-Neobrix needing a separate theme for each one.
-
 Or read it first, which is the better habit with any `curl | bash`:
 
 ```bash
