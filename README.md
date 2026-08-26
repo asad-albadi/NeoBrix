@@ -679,6 +679,15 @@ itself — the last of these is skipped with a note if Zen has never been starte
 since the profile it writes into does not exist until then. The login screen is
 the one thing it leaves alone unless asked: see [`--greeter`](#login-screen).
 
+The package step also gives Pacman and Paru one consistent terminal experience.
+Pacman keeps the distribution's repositories, mirrors and signature policy, but
+enables colour, `ILoveCandy`, verbose package tables and five parallel downloads.
+The original is retained once at `/etc/pacman.conf.pre-neobrix`; uninstall offers
+to restore it. `deploy.sh` links the reviewed Paru policy from this repository to
+`~/.config/paru/paru.conf`: interactive AUR-first results, combined repository/AUR
+upgrade review, Arch news, a maintained sudo ticket during builds, and cleanup of
+temporary build files. Package resolution and installation remain Pacman/Paru's.
+
 Then log out and back in. To apply most of it without logging out:
 
 ```bash

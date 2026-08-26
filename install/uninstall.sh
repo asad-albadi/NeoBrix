@@ -107,6 +107,18 @@ if [[ -n $latest_cleanup && -r $latest_cleanup/disabled-units.txt ]]; then
     fi
 fi
 
+if [[ -r /etc/pacman.conf.pre-neobrix ]]; then
+    if confirm yes "Restore /etc/pacman.conf from its pre-Neobrix copy? (needs sudo)"; then
+        sudo cp -a /etc/pacman.conf.pre-neobrix /etc/pacman.conf
+        [[ -e /etc/pacman.d/99-neobrix-options.conf ]] && \
+            sudo unlink /etc/pacman.d/99-neobrix-options.conf
+        sudo unlink /etc/pacman.conf.pre-neobrix
+        step "restored /etc/pacman.conf"
+    else
+        step "left Neobrix's Pacman presentation options enabled"
+    fi
+fi
+
 # ── what is left ─────────────────────────────────────────────────────────────
 echo
 info "done. What this did NOT remove, on purpose:"

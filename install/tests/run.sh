@@ -312,7 +312,12 @@ EOF
 # suite happened to have would make these two cases swap places.
 test_confirmation() {
     local d="$TMP/confirm"; mkdir -p "$d/bin"
-    printf '#!/usr/bin/env bash\nshift 0\nexec "$@"\n' > "$d/bin/sudo"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        'case "$1" in' \
+        '  pacman) exec "$@" ;;' \
+        '  cp|install) exit 0 ;;' \
+        'esac' \
+        'exit 1' > "$d/bin/sudo"
     # One package missing, and every `-S` recorded with its flags.
     cat > "$d/bin/pacman" <<'EOF'
 #!/usr/bin/env bash
@@ -822,6 +827,35 @@ test_idle_resume() {
         $'would run: brightnessctl -q -r\nwould confirm: dpms off\nwould confirm: dpms on' "$out"
 }
 
+test_pacman_style() {
+    case_ "Pacman styling changes presentation without replacing repositories"
+
+    local input="$TMP/pacman.conf" out
+    printf '%s\n' \
+        '[options]' \
+        '#Color' \
+        '#IloveCandy' \
+        'ParallelDownloads = 12' \
+        'Architecture = auto' \
+        '[core]' \
+        'Include = /etc/pacman.d/mirrorlist' > "$input"
+    out="$("$REPO/install/configure-pacman.py" "$input")"
+
+    assert_has "color is enabled" 'Color' "$out"
+    assert_has "candy progress is enabled with canonical spelling" 'ILoveCandy' "$out"
+    assert_has "package changes use a table" 'VerbosePkgLists' "$out"
+    assert_has "downloads use the Neobrix concurrency" 'ParallelDownloads = 5' "$out"
+    assert_has "architecture is preserved" 'Architecture = auto' "$out"
+    assert_has "repository configuration is preserved" 'Include = /etc/pacman.d/mirrorlist' "$out"
+    assert_lacks "the previous parallel value is replaced" 'ParallelDownloads = 12' "$out"
+    assert_has "the final options fragment carries only presentation policy" \
+        'ParallelDownloads = 5' "$(cat "$REPO/package/pacman-options.conf")"
+
+    printf '%s\n' "$out" > "$input"
+    assert_eq "applying the style twice is idempotent" "$out" \
+        "$("$REPO/install/configure-pacman.py" "$input")"
+}
+
 test_btop_theme() {
     case_ "btop follows the palette without eating its own config"
 
@@ -969,6 +1003,7 @@ if (( DO_LOCAL )); then
     test_monitors_layout
     test_idle_inhibit
     test_idle_resume
+    test_pacman_style
     test_btop_theme
     test_zed_theme
 fi

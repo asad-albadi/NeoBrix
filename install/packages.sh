@@ -22,6 +22,8 @@
 
 set -euo pipefail
 
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+
 # ── core: compositor, shell, session ────────────────────────────────────────
 CORE=(
     hyprland          # compositor
@@ -128,6 +130,27 @@ for a in "$@"; do
     esac
 done
 
+configure_pacman_style() {
+    # Pacman's visual options live in its system config. Preserve the original
+    # once for rollback, then change only presentation keys in [options]; repo,
+    # mirror and signature policy remain as the distribution set them.
+    info "configuring Pacman's Neobrix CLI style"
+    local styled
+    styled="$(mktemp)"
+    if ! "$HERE/configure-pacman.py" /etc/pacman.conf > "$styled"; then
+        rm -f "$styled"
+        return 1
+    fi
+    sudo cp -n /etc/pacman.conf /etc/pacman.conf.pre-neobrix
+    sudo install -m644 "$styled" /etc/pacman.conf
+    # CachyOS ships a later 01-options.conf which can override the main file.
+    # This final fragment makes the effective value deterministic there while
+    # the normalized main file covers Arch installations without the wildcard.
+    sudo install -Dm644 "$HERE/../package/pacman-options.conf" \
+        /etc/pacman.d/99-neobrix-options.conf
+    rm -f "$styled"
+}
+
 # ── make sure pacman can answer before believing its answers ─────────────────
 # The sync databases have to be current, or every -Si below fails and the whole
 # package list gets classified as "not in your repositories" — 46 names blamed
@@ -214,6 +237,7 @@ fi
 
 if (( ${#missing[@]} == 0 )); then
     info "all repository packages already installed"
+    (( CHECK_ONLY )) || configure_pacman_style
     exit 0
 fi
 
@@ -266,3 +290,5 @@ if pacman -Qq mpv >/dev/null 2>&1 && ! pacman -Qq mpv-mpris >/dev/null 2>&1; the
     info "mpv is installed; adding mpv-mpris for MPRIS support"
     sudo pacman -S --needed --noconfirm mpv-mpris || true
 fi
+
+configure_pacman_style
