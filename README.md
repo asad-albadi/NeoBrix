@@ -176,6 +176,10 @@ the public captures are intentionally obscured.
 
 | Dawn | Dusk |
 |:---:|:---:|
+| ![ReGreet login screen in dawn](docs/screenshots/greeter-dawn.png) | ![ReGreet login screen in dusk](docs/screenshots/greeter-dusk.png) |
+| **Login screen** | **Login screen** |
+| ![hyprlock screen in dawn](docs/screenshots/lock-dawn.png) | ![hyprlock screen in dusk](docs/screenshots/lock-dusk.png) |
+| **Lock screen** | **Lock screen** |
 | ![NeoBrix dawn desktop](docs/screenshots/shell-desktop-dawn.png) | ![NeoBrix dusk desktop](docs/screenshots/shell-desktop-dusk.png) |
 | **Desktop** | **Desktop** |
 | ![Launcher in dawn](docs/screenshots/shell-launcher-dawn.png) | ![Launcher in dusk](docs/screenshots/shell-launcher-dusk.png) |
