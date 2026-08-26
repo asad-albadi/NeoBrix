@@ -93,6 +93,16 @@ BrixPopup {
                 }
 
                 BrixButton {
+                    text: "AI"
+                    icon: "󱙺"
+                    fontSize: Theme.fontSm
+                    active: Panels.controlTab === "ai"
+                    activeAccent: Theme.warning
+                    accent: Theme.surface
+                    onClicked: Panels.controlTab = "ai"
+                }
+
+                BrixButton {
                     text: "NOTIFICATIONS"
                     icon: Notifs.count > 0 ? "󱅫" : "󰂚"
                     fontSize: Theme.fontSm
@@ -149,6 +159,12 @@ BrixPopup {
                 DisplaysTab {
                     anchors.fill: parent
                     visible: Panels.controlTab === "displays"
+                    active: root.open && visible
+                }
+
+                AiTab {
+                    anchors.fill: parent
+                    visible: Panels.controlTab === "ai"
                     active: root.open && visible
                 }
 

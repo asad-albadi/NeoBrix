@@ -39,6 +39,7 @@ ShellRoot {
         Hw.hasBattery,
         Apps.all.length,
         Session.canHibernate,
+        Ai.providers.length,
         Wall.current
     ]
 
