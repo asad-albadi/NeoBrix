@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+"""Collect display-safe AI account and local-usage data for Neobrix.
+
+Vendor credentials are read only inside this short-lived process.  The JSON
+written for Quickshell contains no token, account id, organisation id, or raw
+transcript text.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import select
+import shutil
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+SCHEMA = 1
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+
+
+def home() -> Path:
+    return Path(os.environ.get("NEOBRIX_AI_HOME", Path.home()))
+
+
+def state_path() -> Path:
+    root = Path(os.environ.get("XDG_STATE_HOME", home() / ".local/state"))
+    return root / "neobrix/ai.json"
+
+
+def now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def number(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def local_day(value: Any) -> str:
+    try:
+        if isinstance(value, (int, float)):
+            seconds = float(value) / 1000 if float(value) > 10_000_000_000 else float(value)
+            return dt.datetime.fromtimestamp(seconds).astimezone().date().isoformat()
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.astimezone().date().isoformat()
+    except Exception:
+        return dt.datetime.now().date().isoformat()
+
+
+def empty_activity() -> dict[str, Any]:
+    return {"todayTokens": 0, "weekTokens": 0, "todaySessions": 0, "weekSessions": 0, "models": []}
+
+
+def activity_accumulator() -> tuple[dict[str, Any], Any]:
+    today = dt.datetime.now().date()
+    week_start = today - dt.timedelta(days=6)
+    totals: dict[str, int] = {}
+    today_sessions: set[str] = set()
+    week_sessions: set[str] = set()
+    result = empty_activity()
+
+    def add(day_text: str, session: str, model: str, tokens: int) -> None:
+        try:
+            day = dt.date.fromisoformat(day_text)
+        except ValueError:
+            return
+        if day < week_start or day > today or tokens <= 0:
+            return
+        result["weekTokens"] += tokens
+        week_sessions.add(session)
+        totals[model or "unknown"] = totals.get(model or "unknown", 0) + tokens
+        if day == today:
+            result["todayTokens"] += tokens
+            today_sessions.add(session)
+
+    def finish() -> dict[str, Any]:
+        result["todaySessions"] = len(today_sessions)
+        result["weekSessions"] = len(week_sessions)
+        result["models"] = [
+            {"name": name, "tokens": tokens}
+            for name, tokens in sorted(totals.items(), key=lambda item: item[1], reverse=True)[:4]
+        ]
+        return result
+
+    return result, (add, finish)
+
+
+def base_record(provider: str, name: str, command: str) -> dict[str, Any]:
+    return {
+        "id": provider,
+        "name": name,
+        "installed": shutil.which(command) is not None,
+        "authenticated": False,
+        "accountLabel": "",
+        "plan": "",
+        "status": "Not installed" if shutil.which(command) is None else "Waiting for login",
+        "limits": [],
+        "activity": empty_activity(),
+        "dashboardUrl": "",
+        "launchCommand": command,
+    }
+
+
+def scan_claude(record: dict[str, Any]) -> None:
+    root = Path(os.environ.get("CLAUDE_CONFIG_DIR", home() / ".claude"))
+    _, funcs = activity_accumulator()
+    add, finish = funcs
+    seen: set[str] = set()
+    projects = root / "projects"
+    if projects.is_dir():
+        for path in projects.glob("*/*.jsonl"):
+            try:
+                with path.open(errors="replace") as handle:
+                    for line_number, raw in enumerate(handle, 1):
+                        if '"usage"' not in raw or '"assistant"' not in raw:
+                            continue
+                        try:
+                            entry = json.loads(raw)
+                            message = entry.get("message") or {}
+                            if entry.get("type") != "assistant" or message.get("role") != "assistant":
+                                continue
+                            message_id = str(message.get("id") or entry.get("messageId") or "")
+                            unique = message_id or f"{path}:{entry.get('uuid') or entry.get('requestId') or line_number}"
+                            if unique in seen:
+                                continue
+                            seen.add(unique)
+                            usage = message.get("usage") or {}
+                            tokens = sum(number(usage.get(key)) for key in (
+                                "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"
+                            ))
+                            add(local_day(entry.get("timestamp")), str(path), str(message.get("model") or "claude"), tokens)
+                        except Exception:
+                            continue
+            except OSError:
+                continue
+    record["activity"] = finish()
+
+    credentials = {}
+    try:
+        credentials = json.loads((root / ".credentials.json").read_text()).get("claudeAiOauth") or {}
+    except Exception:
+        pass
+    profile = {}
+    try:
+        profile = json.loads((home() / ".claude.json").read_text()).get("oauthAccount") or {}
+    except Exception:
+        pass
+    token = str(credentials.get("accessToken") or "")
+    record["authenticated"] = bool(token)
+    record["accountLabel"] = str(profile.get("organizationName") or profile.get("emailAddress") or "")
+    tier = str(profile.get("organizationRateLimitTier") or credentials.get("rateLimitTier") or "")
+    subscription = str(credentials.get("subscriptionType") or profile.get("organizationType") or "")
+    if "max_" in tier:
+        record["plan"] = "Max " + tier.rsplit("max_", 1)[-1].upper()
+    elif subscription:
+        record["plan"] = subscription.replace("claude_", "").replace("_", " ").title()
+    if not token:
+        return
+    if os.environ.get("NEOBRIX_AI_OFFLINE") == "1":
+        record["status"] = "Local activity"
+        return
+    request = urllib.request.Request(
+        CLAUDE_USAGE_URL,
+        headers={"Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20", "User-Agent": "neobrix-ai/1"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=6) as response:
+            payload = json.load(response)
+        values = []
+        for key, label in (("five_hour", "5-hour session"), ("seven_day", "Weekly")):
+            bucket = payload.get(key)
+            if isinstance(bucket, dict) and bucket.get("utilization") is not None:
+                used = float(bucket["utilization"])
+                values.append({"label": label, "usedPercent": used if used > 1 else used * 100, "resetsAt": str(bucket.get("resets_at") or "")})
+        record["limits"] = values
+        record["status"] = "Ready"
+    except Exception:
+        record["status"] = "Limits unavailable"
+
+
+def rpc_request(proc: subprocess.Popen[str], request_id: int, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    assert proc.stdin is not None and proc.stdout is not None
+    proc.stdin.write(json.dumps({"id": request_id, "method": method, "params": params or {}}) + "\n")
+    proc.stdin.flush()
+    deadline = time.time() + 6
+    while time.time() < deadline:
+        ready, _, _ = select.select([proc.stdout], [], [], 0.25)
+        if ready:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            try:
+                message = json.loads(line)
+                if message.get("id") == request_id:
+                    return message
+            except Exception:
+                pass
+    raise TimeoutError(method)
+
+
+def scan_codex(record: dict[str, Any]) -> None:
+    root = Path(os.environ.get("CODEX_HOME", home() / ".codex"))
+    _, funcs = activity_accumulator()
+    add, finish = funcs
+    for folder in (root / "sessions", root / "archived_sessions"):
+        if not folder.is_dir():
+            continue
+        for path in folder.rglob("*.jsonl"):
+            model = "codex"
+            try:
+                for raw in path.open(errors="replace"):
+                    try:
+                        entry = json.loads(raw)
+                        payload = entry.get("payload") or {}
+                        if entry.get("type") == "turn_context":
+                            model = str(payload.get("model") or model)
+                        if payload.get("type") != "token_count":
+                            continue
+                        usage = (payload.get("info") or {}).get("last_token_usage") or {}
+                        # Codex includes cached input in input_tokens and
+                        # reasoning in output_tokens. Adding either category
+                        # again would make the local total larger than the
+                        # session actually consumed.
+                        tokens = number(usage.get("input_tokens")) + number(usage.get("output_tokens"))
+                        add(local_day(entry.get("timestamp") or path.stat().st_mtime), str(path), model, tokens)
+                    except Exception:
+                        continue
+            except OSError:
+                continue
+    record["activity"] = finish()
+    if not record["installed"]:
+        return
+    if os.environ.get("NEOBRIX_AI_OFFLINE") == "1":
+        record["authenticated"] = (root / "auth.json").is_file()
+        record["status"] = "Local activity" if record["authenticated"] else "Waiting for login"
+        return
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [record["launchCommand"], "-s", "read-only", "-a", "never", "app-server"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+        rpc_request(proc, 1, "initialize", {"clientInfo": {"name": "neobrix-ai", "version": "1"}})
+        assert proc.stdin is not None
+        proc.stdin.write(json.dumps({"method": "initialized", "params": {}}) + "\n")
+        proc.stdin.flush()
+        account = (rpc_request(proc, 2, "account/read").get("result") or {}).get("account") or {}
+        limits = (rpc_request(proc, 3, "account/rateLimits/read").get("result") or {}).get("rateLimits") or {}
+        record["authenticated"] = bool(account)
+        record["plan"] = str(limits.get("planType") or account.get("planType") or "").title()
+        for window in (limits.get("primary"), limits.get("secondary")):
+            if not isinstance(window, dict) or window.get("usedPercent") is None:
+                continue
+            minutes = number(window.get("windowDurationMins"))
+            label = "Weekly" if minutes == 10080 else (f"{minutes // 60}-hour" if minutes and minutes % 60 == 0 else "Limit")
+            reset = number(window.get("resetsAt"))
+            record["limits"].append({
+                "label": label, "usedPercent": float(window["usedPercent"]),
+                "resetsAt": dt.datetime.fromtimestamp(reset, dt.timezone.utc).isoformat() if reset else "",
+            })
+        record["status"] = "Ready"
+    except Exception:
+        record["authenticated"] = (root / "auth.json").is_file()
+        record["status"] = "Limits unavailable" if record["authenticated"] else "Waiting for login"
+    finally:
+        if proc:
+            proc.terminate()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+
+def cursor_value(db: Path, key: str) -> str:
+    try:
+        conn = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)
+        try:
+            row = conn.execute("SELECT value FROM ItemTable WHERE key = ?", (key,)).fetchone()
+            return str(row[0]) if row else ""
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ""
+
+
+def scan_cursor(record: dict[str, Any]) -> None:
+    config = Path(os.environ.get("CURSOR_CONFIG_HOME", home() / ".config/Cursor"))
+    db = config / "User/globalStorage/state.vscdb"
+    email = cursor_value(db, "cursorAuth/cachedEmail")
+    membership = cursor_value(db, "cursorAuth/stripeMembershipType")
+    status = cursor_value(db, "cursorAuth/stripeSubscriptionStatus")
+    record["authenticated"] = bool(email or membership)
+    record["accountLabel"] = email
+    record["plan"] = membership.replace("_", " ").title()
+    record["status"] = status.replace("_", " ").title() if status else ("Ready" if record["authenticated"] else record["status"])
+    record["dashboardUrl"] = "https://cursor.com/dashboard?tab=usage"
+
+    tracking = Path(os.environ.get("CURSOR_TRACKING_DB", home() / ".cursor/ai-tracking/ai-code-tracking.db"))
+    activity = empty_activity()
+    try:
+        conn = sqlite3.connect(tracking.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)
+        try:
+            today = dt.datetime.now().date()
+            start = int(dt.datetime.combine(today - dt.timedelta(days=6), dt.time.min).timestamp() * 1000)
+            rows = conn.execute(
+                "SELECT timestamp, conversationId, model FROM ai_code_hashes WHERE timestamp >= ?", (start,)
+            ).fetchall()
+            week_sessions = {str(row[1]) for row in rows}
+            today_sessions = {str(row[1]) for row in rows if local_day(row[0]) == today.isoformat()}
+            activity["weekSessions"] = len(week_sessions)
+            activity["todaySessions"] = len(today_sessions)
+            counts: dict[str, int] = {}
+            for _, _, model in rows:
+                counts[str(model or "unknown")] = counts.get(str(model or "unknown"), 0) + 1
+            activity["models"] = [{"name": k, "events": v} for k, v in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:4]]
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
+    record["activity"] = activity
+
+
+def collect() -> dict[str, Any]:
+    records = [
+        base_record("codex", "Codex", "codex"),
+        base_record("claude", "Claude Code", "claude"),
+        base_record("cursor", "Cursor", "cursor"),
+    ]
+    scan_codex(records[0])
+    scan_claude(records[1])
+    scan_cursor(records[2])
+    return {"schemaVersion": SCHEMA, "updatedAt": now_iso(), "providers": records}
+
+
+def atomic_write(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix="ai.", suffix=".json", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            json.dump(payload, handle, separators=(",", ":"))
+            handle.write("\n")
+        os.chmod(name, 0o600)
+        os.replace(name, path)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", nargs="?", choices=("refresh", "show"), default="refresh")
+    args = parser.parse_args()
+    path = state_path()
+    if args.command == "show":
+        try:
+            print(path.read_text(), end="")
+            return 0
+        except OSError:
+            return 1
+    payload = collect()
+    atomic_write(path, payload)
+    print(json.dumps(payload, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

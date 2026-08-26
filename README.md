@@ -224,7 +224,7 @@ quickshell/
 │                        BrixSlider · BrixVSlider · BrixToggle · BrixProgress
 │                        BrixPopup · BrixTooltip · SectionHeader
 ├── Services/            Hw · SysInfo · Audio · Net · Bt · Backlight · Media
-│                        Notifs · Apps · Clip · Session · Wall · Panels
+│                        Notifs · Apps · Clip · Session · Wall · Panels · Ai
 ├── Bar/                 Bar · Workspaces · ActiveWindow · Tray · TrayMenu
 │                        Indicators · MediaPill · ClockPill · NotifButton
 ├── Launcher/            Launcher · AppEntry
@@ -569,6 +569,30 @@ screen that is off still appears in the tab (Hyprland's own monitor list drops
 it, which would leave no way to switch it back on), and the last screen still on
 cannot be switched off.
 
+### AI accounts
+
+The control centre's **AI** tab puts Codex, Claude Code and Cursor in one place.
+It shows vendor-reported quota windows where the provider exposes them, alongside
+activity calculated from this machine's local session history. Those are kept
+visibly separate: a local token count is not presented as a billing meter.
+
+`neobrix-ai refresh` is the boundary between vendor state and the shell. It reads
+the providers' local formats, asks Codex's read-only app server and Anthropic's
+usage endpoint for current limits, and atomically writes one normalized record to
+`$XDG_STATE_HOME/neobrix/ai.json` (normally
+`~/.local/state/neobrix/ai.json`). The file is mode `0600` and contains no access
+tokens, refresh tokens, account ids or transcript text. QML reads only that
+display-safe record; it never opens a credential store.
+
+Cursor exposes cached plan and subscription status locally, but not an official
+personal usage API. Its card therefore links to Cursor's usage dashboard instead
+of scraping a private endpoint or inventing a percentage. The local activity
+below it counts sessions observed in Cursor's AI tracking database.
+
+Opening the tab refreshes it; the button does the same on demand. A failed network
+probe leaves local activity and account status visible and labels the missing
+limits rather than throwing away the last useful facts.
+
 ### Idle and power
 
 Left alone, the desktop dims at 10 minutes, locks at 15, blanks at 20 and — **on
@@ -728,6 +752,7 @@ Full list: [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md). The essentials:
 | `neobrix-power auto\|battery\|mains\|status` | match the power policy to the cable |
 | `neobrix-monitors list\|state\|set\|apply\|save\|profiles` | read and change the display layout |
 | `neobrix-monitors cap <hz>\|uncap` | limit the internal panel's refresh, and put it back |
+| `neobrix-ai refresh\|show` | refresh or print the display-safe AI account and usage snapshot |
 
 The shell is also scriptable:
 
@@ -735,6 +760,7 @@ The shell is also scriptable:
 qs -c neobrix ipc call panels toggle launcher
 qs -c neobrix ipc call panels control system
 qs -c neobrix ipc call panels control connectivity
+qs -c neobrix ipc call panels control ai
 qs -c neobrix ipc call panels control notifications
 qs -c neobrix ipc call theme set dusk
 qs -c neobrix ipc call wallpaper next
