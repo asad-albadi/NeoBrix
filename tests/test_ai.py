@@ -86,7 +86,9 @@ class AiCollectorTest(unittest.TestCase):
         }
         # A streamed message may be persisted more than once. It contributes
         # once, keyed by the provider message id.
-        (project / "session.jsonl").write_text(json.dumps(event) + "\n" + json.dumps(event) + "\n")
+        prompt = {"type": "user", "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+                  "message": {"role": "user", "content": "Review the new control center"}}
+        (project / "session.jsonl").write_text(json.dumps(prompt) + "\n" + json.dumps(event) + "\n" + json.dumps(event) + "\n")
         codex = self.home / ".codex"
         codex.mkdir()
         (codex / "auth.json").write_text('{"access_token":"CODEX_SECRET_MUST_NOT_LEAK"}')
@@ -97,6 +99,9 @@ class AiCollectorTest(unittest.TestCase):
                         "payload": {"session_id": "codex-session", "cwd": "/projects/neobrix"}}),
             json.dumps({"timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "type": "turn_context",
                         "payload": {"model": "gpt-test"}}),
+            json.dumps({"timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "type": "response_item",
+                        "payload": {"type": "message", "role": "user",
+                                    "content": [{"type": "input_text", "text": "Fix the session browser"}]}}),
         ]) + "\n")
 
         self.env["NEOBRIX_AI_OFFLINE"] = "1"
@@ -109,9 +114,10 @@ class AiCollectorTest(unittest.TestCase):
         claude_record = payload["providers"][1]
         self.assertEqual(claude_record["activity"]["todayTokens"], 15)
         self.assertEqual(claude_record["sessions"][0]["id"], "session")
+        self.assertEqual(claude_record["sessions"][0]["label"], "Review the new control center")
         codex_record = payload["providers"][0]
         self.assertEqual(codex_record["sessions"][0]["id"], "codex-session")
-        self.assertEqual(codex_record["sessions"][0]["label"], "neobrix")
+        self.assertEqual(codex_record["sessions"][0]["label"], "Fix the session browser")
         self.assertEqual(cursor["sessions"][0]["label"], "Improve the AI tab")
         self.assertNotIn("SECRET_MUST_NOT_LEAK", raw)
         state = Path(self.env["XDG_STATE_HOME"]) / "neobrix/ai.json"

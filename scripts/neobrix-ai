@@ -59,6 +59,24 @@ def session_text(value: Any, fallback: str) -> str:
     return text[:160] if text else fallback
 
 
+def message_text(value: Any) -> str:
+    """Extract visible user text from Claude/Codex's differing message shapes."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return message_text(value.get("text") or value.get("content"))
+    if isinstance(value, list):
+        return " ".join(message_text(part) for part in value)
+    return ""
+
+
+def useful_title(value: Any) -> str:
+    text = session_text(message_text(value), "")
+    # Codex records environment context as a user-shaped message before the
+    # actual prompt. It is useful to the agent, but a poor session name.
+    return "" if text.startswith("<environment_context>") else text
+
+
 def add_session(record: dict[str, Any], session_id: Any, label: Any, detail: Any,
                 updated_at: Any, fallback_time: float | None = None) -> None:
     session_id = str(session_id or "")
@@ -164,6 +182,7 @@ def scan_claude(record: dict[str, Any]) -> None:
     if projects.is_dir():
         for path in projects.glob("*/*.jsonl"):
             model = "claude"
+            title = ""
             updated_at: Any = path.stat().st_mtime
             try:
                 with path.open(errors="replace") as handle:
@@ -173,6 +192,8 @@ def scan_claude(record: dict[str, Any]) -> None:
                             message = entry.get("message") or {}
                             updated_at = entry.get("timestamp") or updated_at
                             model = str(message.get("model") or model)
+                            if not title and entry.get("type") == "user" and message.get("role") == "user":
+                                title = useful_title(message.get("content"))
                             if '"usage"' not in raw or '"assistant"' not in raw:
                                 continue
                             if entry.get("type") != "assistant" or message.get("role") != "assistant":
@@ -192,7 +213,7 @@ def scan_claude(record: dict[str, Any]) -> None:
             except OSError:
                 continue
             project = path.parent.name.lstrip("-").replace("-", "/")
-            add_session(record, path.stem, project, model, updated_at, path.stat().st_mtime)
+            add_session(record, path.stem, title or project, model, updated_at, path.stat().st_mtime)
     record["activity"] = finish()
     finish_sessions(record)
 
@@ -270,6 +291,7 @@ def scan_codex(record: dict[str, Any]) -> None:
             model = "codex"
             session_id = path.stem
             cwd = ""
+            title = ""
             updated_at: Any = path.stat().st_mtime
             try:
                 for raw in path.open(errors="replace"):
@@ -282,6 +304,9 @@ def scan_codex(record: dict[str, Any]) -> None:
                         elif entry.get("type") == "session_meta":
                             session_id = str(payload.get("session_id") or payload.get("id") or session_id)
                             cwd = str(payload.get("cwd") or cwd)
+                        elif (not title and entry.get("type") == "response_item"
+                              and payload.get("type") == "message" and payload.get("role") == "user"):
+                            title = useful_title(payload.get("content"))
                         if payload.get("type") != "token_count":
                             continue
                         usage = (payload.get("info") or {}).get("last_token_usage") or {}
@@ -295,7 +320,7 @@ def scan_codex(record: dict[str, Any]) -> None:
                         continue
             except OSError:
                 continue
-            add_session(record, session_id, Path(cwd).name if cwd else "Codex session", model,
+            add_session(record, session_id, title or (Path(cwd).name if cwd else "Codex session"), model,
                         updated_at, path.stat().st_mtime)
     record["activity"] = finish()
     finish_sessions(record)
