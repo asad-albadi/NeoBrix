@@ -327,10 +327,83 @@ want_light, want_dark = "Neobrix Dawn", "Neobrix Dusk"
 
 block = ('{\n    "mode": "%s",\n    "light": "%s",\n    "dark": "%s"\n  }'
          % ("light" if mode == "dawn" else "dark", want_light, want_dark))
+fish_shell = '{\n      "program": "/usr/bin/fish"\n    }'
+
+def value_end(text, start):
+    """Return the first byte after one JSON/JSONC value."""
+    while start < len(text) and text[start].isspace():
+        start += 1
+    if start >= len(text):
+        return start
+    if text[start] == '"':
+        i, esc = start + 1, False
+        while i < len(text):
+            if esc:
+                esc = False
+            elif text[i] == "\\":
+                esc = True
+            elif text[i] == '"':
+                return i + 1
+            i += 1
+        return i
+    if text[start] in "{[":
+        opening, closing = text[start], "}" if text[start] == "{" else "]"
+        depth, i, in_str, esc = 0, start, False, False
+        while i < len(text):
+            ch = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch == opening:
+                depth += 1
+            elif ch == closing:
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+            i += 1
+        return i
+    i = start
+    while i < len(text) and text[i] not in ",}\n":
+        i += 1
+    return i
+
+def set_terminal_shell(text):
+    """Set only terminal.shell, retaining comments and all other Zed settings."""
+    terminal = re.search(r'"terminal"\s*:\s*', text)
+    if not terminal:
+        brace = text.find("{")
+        if brace < 0:
+            return text
+        return (text[:brace + 1] + '\n  "terminal": {\n    "shell": %s\n  },'
+                % fish_shell + text[brace + 1:])
+
+    start = terminal.end()
+    while start < len(text) and text[start].isspace():
+        start += 1
+    if start >= len(text) or text[start] != "{":
+        end = value_end(text, start)
+        return text[:start] + '{\n    "shell": %s\n  }' % fish_shell + text[end:]
+
+    end = value_end(text, start)
+    shell = re.search(r'"shell"\s*:\s*', text[start + 1:end - 1])
+    if shell:
+        value_start = start + 1 + shell.end()
+        value_end_at = value_end(text, value_start)
+        return text[:value_start] + fish_shell + text[value_end_at:]
+
+    return (text[:start + 1] + '\n    "shell": %s,' % fish_shell
+            + text[start + 1:])
 
 if not path.exists() or not path.stat().st_size:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('{\n  "theme": %s\n}\n' % block)
+    path.write_text('{\n  "theme": %s,\n  "terminal": {\n    "shell": %s\n  }\n}\n'
+                    % (block, fish_shell))
     print("  wrote %s" % path)
     raise SystemExit(0)
 
@@ -343,7 +416,7 @@ if not m:
         print("  %s has no JSON object in it; left alone" % path)
         raise SystemExit(0)
     new = raw[:brace + 1] + '\n  "theme": %s,' % block + raw[brace + 1:]
-    path.write_text(new)
+    path.write_text(set_terminal_shell(new))
     print("  added a theme setting to %s" % path)
     raise SystemExit(0)
 
@@ -384,7 +457,7 @@ if re.search(r'"mode"\s*:\s*"system"', old):
 else:
     keep = block
 
-path.write_text(raw[:start] + keep + raw[end:])
+path.write_text(set_terminal_shell(raw[:start] + keep + raw[end:]))
 print("  %s -> Neobrix Dawn / Dusk" % path)
 PY
 

@@ -358,6 +358,16 @@ if path.exists() and path.stat().st_size:
 data["workbench.colorTheme"] = f"Neobrix {mode.capitalize()}"
 data.setdefault("editor.fontFamily", "'JetBrainsMono Nerd Font Mono', monospace")
 data.setdefault("terminal.integrated.fontFamily", "'JetBrainsMono Nerd Font Mono'")
+# Keep the editor terminal aligned with the desktop terminal. Cursor inherits
+# profiles from VS Code, but only switches to Fish when it is named as the Linux
+# default profile; defining it explicitly also works on installs where discovery
+# is disabled or delayed.
+profiles = data.get("terminal.integrated.profiles.linux")
+if not isinstance(profiles, dict):
+    profiles = {}
+    data["terminal.integrated.profiles.linux"] = profiles
+profiles.setdefault("fish", {"path": "/usr/bin/fish"})
+data["terminal.integrated.defaultProfile.linux"] = "fish"
 data.setdefault("editor.fontSize", 13)
 data.setdefault("editor.fontLigatures", False)
 # The theme leans on borders; without this the editor hides most of them.

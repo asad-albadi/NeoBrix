@@ -967,6 +967,7 @@ print(t["style"]["border"])' "$theme" 2>&1)"
     assert_has "unrelated settings survive" '"buffer_font_size": 15' "$(cat "$conf")"
     assert_has "the light name is set" '"light": "Neobrix Dawn"' "$(cat "$conf")"
     assert_has "the dark name is set" '"dark": "Neobrix Dusk"' "$(cat "$conf")"
+    assert_has "the integrated terminal uses Fish" '"program": "/usr/bin/fish"' "$(cat "$conf")"
     # An explicit "system" is a working preference -- the desktop's colour-scheme
     # already follows the palette -- so it is not overridden.
     assert_has "an explicit system mode is left alone" '"mode": "system"' "$(cat "$conf")"
@@ -988,6 +989,28 @@ PY
                              || ok "it skips a machine without Zed"
 }
 
+test_editor_terminal_shell() {
+    case_ "Cursor's integrated terminal defaults to Fish"
+
+    local dir="$TMP/editor"
+    mkdir -p "$dir/bin" "$dir/cfg/Cursor/User" "$dir/home/.cursor"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/bin/cursor"
+    chmod +x "$dir/bin/cursor"
+    printf '{\n  "editor.fontSize": 15\n}\n' > "$dir/cfg/Cursor/User/settings.json"
+
+    env "PATH=$dir/bin:$PATH" "HOME=$dir/home" "XDG_CONFIG_HOME=$dir/cfg" \
+        "$REPO/scripts/neobrix-generate-editor-theme" dusk >/dev/null 2>&1
+
+    local conf="$dir/cfg/Cursor/User/settings.json"
+    assert_has "the Fish profile has an explicit executable" \
+        '"fish": {' "$(cat "$conf")"
+    assert_has "the Fish profile uses /usr/bin/fish" \
+        '"path": "/usr/bin/fish"' "$(cat "$conf")"
+    assert_has "Fish is Cursor's Linux default profile" \
+        '"terminal.integrated.defaultProfile.linux": "fish"' "$(cat "$conf")"
+    assert_has "unrelated Cursor settings survive" '"editor.fontSize": 15' "$(cat "$conf")"
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -1006,6 +1029,7 @@ if (( DO_LOCAL )); then
     test_pacman_style
     test_btop_theme
     test_zed_theme
+    test_editor_terminal_shell
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"
