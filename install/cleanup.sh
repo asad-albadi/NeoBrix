@@ -18,7 +18,8 @@
 #    * Disabling a systemd unit is reversible, so units are only ever disabled.
 #      Package removal is a separate question, asked last, and uses `pacman -R`
 #      rather than -Rs: on CachyOS, -Rs on the noctalia meta-package also sweeps
-#      uwsm, the portals, grim, slurp and more (see docs/DEVIATIONS.md).
+#      uwsm, the portals, grim, slurp and more (see the NeoBrix wiki's
+#      Design-Decisions page).
 #    * Only paths named in this file are ever touched. Nothing under
 #      ~/.local/share, ~/Documents or ~/Pictures is considered.
 # ─────────────────────────────────────────────────────────────────────────────

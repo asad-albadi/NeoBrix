@@ -10,5 +10,6 @@
 -- rather than a copied block of cargo-culted exports.
 
 return function(_ctx)
-    -- Intentionally empty. See ~/.config/uwsm/env and docs/HYPRLAND-LUA.md.
+    -- Intentionally empty. See ~/.config/uwsm/env and the NeoBrix wiki's
+    -- Hyprland-Lua page.
 end

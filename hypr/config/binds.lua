@@ -8,7 +8,7 @@
 -- tables so adding a key is a one-line change; the key lists stay at the call
 -- site so nothing is hidden.
 --
--- Full list: docs/KEYBINDINGS.md
+-- Full list: the NeoBrix wiki's Keybindings page.
 
 local helpers = require("lib.helpers")
 

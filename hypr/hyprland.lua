@@ -4,7 +4,8 @@
 --  Hyprland 0.56 loads ~/.config/hypr/hyprland.lua in preference to
 --  hyprland.conf; internally it calls the hyprlang tree the "legacy config"
 --  ("[cfg] Lua config not found, using legacy config at {}"). This project
---  therefore targets Lua as the primary format. See docs/HYPRLAND-LUA.md.
+--  therefore targets Lua as the primary format. See the NeoBrix wiki's
+--  Hyprland-Lua page.
 --
 --  Modules are plain Lua files under config/, composed here. Each returns a
 --  function taking the shared context (apps, palette, capabilities) so nothing
