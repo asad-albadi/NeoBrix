@@ -35,6 +35,19 @@ Singleton {
         launchProc.running = true;
     }
 
+    function resume(id, session) {
+        const item = provider(id);
+        if (!item || !session) return;
+        if (id === "cursor") {
+            launch(id);
+            return;
+        }
+        const args = id === "codex" ? ["resume", session.id] : ["--resume", session.id];
+        resumeProc.command = ["uwsm", "app", "--", "kitty", "--class", "neobrix-ai",
+                              "--title", item.name + " session", item.launchCommand].concat(args);
+        resumeProc.running = true;
+    }
+
     function openDashboard(id) {
         const item = provider(id);
         if (!item || item.dashboardUrl === "") return;
@@ -45,7 +58,7 @@ Singleton {
     function consume(raw) {
         try {
             const payload = JSON.parse(raw);
-            if (payload.schemaVersion !== 1 || !(payload.providers instanceof Array))
+            if (payload.schemaVersion !== 2 || !(payload.providers instanceof Array))
                 throw new Error("unsupported data");
             root.providers = payload.providers;
             root.updatedAt = payload.updatedAt || "";
@@ -73,5 +86,6 @@ Singleton {
     }
 
     Process { id: launchProc; running: false; stderr: StdioCollector {} }
+    Process { id: resumeProc; running: false; stderr: StdioCollector {} }
     Process { id: dashboardProc; running: false; stderr: StdioCollector {} }
 }

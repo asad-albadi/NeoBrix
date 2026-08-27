@@ -12,6 +12,7 @@ Item {
     id: root
     property bool active: false
     property double nowMs: Date.now()
+    property var selectedProvider: null
     onActiveChanged: { if (active) Ai.refresh(); }
 
     Timer {
@@ -48,6 +49,12 @@ Item {
         return "RESET IN " + (days > 0 ? days + "D " : "") + clock;
     }
 
+    function sessionMoment(value) {
+        const when = new Date(value);
+        return isNaN(when.getTime()) ? "UNKNOWN TIME"
+                                    : Qt.formatDateTime(when, "ddd d MMM · h:mm AP").toUpperCase();
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: Theme.spaceSm
@@ -59,14 +66,16 @@ Item {
             ColumnLayout {
                 spacing: 0
                 Text {
-                    text: "AI ACCOUNTS"
+                    text: root.selectedProvider ? root.selectedProvider.name.toUpperCase() + " SESSIONS"
+                                                : "AI ACCOUNTS"
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLg
                     font.weight: Theme.weightHeavy
                     color: Theme.foreground
                 }
                 Text {
-                    text: "Vendor limits and activity recorded on this machine"
+                    text: root.selectedProvider ? "Local session history · newest first"
+                                                : "Vendor limits and activity recorded on this machine"
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontXs
                     font.weight: Theme.weightBold
@@ -86,6 +95,15 @@ Item {
             }
 
             BrixButton {
+                visible: root.selectedProvider !== null
+                text: "BACK"
+                icon: "󰁍"
+                fontSize: Theme.fontXs
+                accent: Theme.surface
+                onClicked: root.selectedProvider = null
+            }
+
+            BrixButton {
                 text: Ai.refreshing ? "REFRESHING" : "REFRESH"
                 icon: "󰑐"
                 fontSize: Theme.fontXs
@@ -101,6 +119,7 @@ Item {
             columns: 3
             columnSpacing: Theme.spaceSm
             rowSpacing: Theme.spaceSm
+            visible: root.selectedProvider === null
 
             Repeater {
                 model: Ai.providers
@@ -315,6 +334,14 @@ Item {
                             Layout.fillWidth: true
                             spacing: Theme.spaceXs
                             BrixButton {
+                                text: "SESSIONS " + ((card.modelData.sessions || []).length)
+                                icon: "󰈙"
+                                fontSize: Theme.fontXs
+                                enabled: card.modelData.installed
+                                accent: Theme.surfaceAlt
+                                onClicked: root.selectedProvider = card.modelData
+                            }
+                            BrixButton {
                                 Layout.fillWidth: true
                                 text: "OPEN"
                                 icon: "󰆍"
@@ -330,6 +357,107 @@ Item {
                                 accent: Theme.surfaceAlt
                                 onClicked: Ai.openDashboard(card.modelData.id)
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: root.selectedProvider !== null
+            spacing: Theme.spaceSm
+
+            BrixCard {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                radius: Theme.radiusMd
+                color: Theme.surface
+                shadowOffset: Theme.shadowSm
+                clip: true
+
+                ListView {
+                    id: sessionList
+                    anchors.fill: parent
+                    anchors.margins: Theme.spaceSm
+                    clip: true
+                    spacing: Theme.spaceXs
+                    model: root.selectedProvider ? (root.selectedProvider.sessions || []) : []
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    delegate: BrixCard {
+                        id: sessionRow
+                        required property var modelData
+                        width: ListView.view.width
+                        implicitHeight: sessionInfo.implicitHeight + Theme.spaceMd * 2
+                        radius: Theme.radiusSm
+                        color: sessionMouse.containsMouse ? Theme.surfaceDeep : Theme.surfaceAlt
+                        shadowOffset: sessionMouse.containsMouse ? Theme.shadowSm : 0
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.spaceSm
+                            spacing: Theme.spaceSm
+                            ColumnLayout {
+                                id: sessionInfo
+                                Layout.fillWidth: true
+                                spacing: 1
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: sessionRow.modelData.label
+                                    elide: Text.ElideRight
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSm
+                                    font.weight: Theme.weightHeavy
+                                    color: Theme.foreground
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: (sessionRow.modelData.detail || "UNKNOWN MODEL").toUpperCase()
+                                          + " · " + root.sessionMoment(sessionRow.modelData.updatedAt)
+                                    elide: Text.ElideRight
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontXs
+                                    font.weight: Theme.weightBold
+                                    color: Theme.foregroundDim
+                                }
+                            }
+                            BrixButton {
+                                text: root.selectedProvider.id === "cursor" ? "OPEN" : "RESUME"
+                                icon: root.selectedProvider.id === "cursor" ? "󰆍" : "󰑓"
+                                fontSize: Theme.fontXs
+                                accent: root.selectedProvider.id === "codex" ? Theme.tertiary
+                                      : root.selectedProvider.id === "claude" ? Theme.primary : Theme.info
+                                onClicked: Ai.resume(root.selectedProvider.id, sessionRow.modelData)
+                            }
+                        }
+                        MouseArea {
+                            id: sessionMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Ai.resume(root.selectedProvider.id, sessionRow.modelData)
+                        }
+                    }
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        visible: sessionList.count === 0
+                        spacing: Theme.spaceSm
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "󰈙"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontXl + 8
+                            color: Theme.foregroundDim
+                        }
+                        Text {
+                            text: "NO LOCAL SESSIONS YET"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSm
+                            font.weight: Theme.weightHeavy
+                            color: Theme.foregroundDim
                         }
                     }
                 }

@@ -24,8 +24,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-SCHEMA = 1
+SCHEMA = 2
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+SESSION_LIMIT = 30
 
 
 def home() -> Path:
@@ -39,6 +40,46 @@ def state_path() -> Path:
 
 def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def iso_time(value: Any, fallback: float | None = None) -> str:
+    """Normalize provider timestamps without exposing their raw records."""
+    try:
+        if isinstance(value, (int, float)):
+            seconds = float(value) / 1000 if float(value) > 10_000_000_000 else float(value)
+            return dt.datetime.fromtimestamp(seconds, dt.timezone.utc).isoformat()
+        return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(dt.timezone.utc).isoformat()
+    except Exception:
+        return dt.datetime.fromtimestamp(fallback or time.time(), dt.timezone.utc).isoformat()
+
+
+def session_text(value: Any, fallback: str) -> str:
+    """Keep compact, single-line session metadata safe for the shell state."""
+    text = " ".join(str(value or "").split())
+    return text[:160] if text else fallback
+
+
+def add_session(record: dict[str, Any], session_id: Any, label: Any, detail: Any,
+                updated_at: Any, fallback_time: float | None = None) -> None:
+    session_id = str(session_id or "")
+    if not session_id:
+        return
+    record["sessions"].append({
+        "id": session_id,
+        "label": session_text(label, "Untitled session"),
+        "detail": session_text(detail, ""),
+        "updatedAt": iso_time(updated_at, fallback_time),
+    })
+
+
+def finish_sessions(record: dict[str, Any]) -> None:
+    # One session can have multiple activity records; the list is useful only
+    # when each conversation appears once and newest-first.
+    unique: dict[str, dict[str, Any]] = {}
+    for item in record["sessions"]:
+        if item["id"] not in unique or item["updatedAt"] > unique[item["id"]]["updatedAt"]:
+            unique[item["id"]] = item
+    record["sessions"] = sorted(unique.values(), key=lambda item: item["updatedAt"], reverse=True)[:SESSION_LIMIT]
 
 
 def number(value: Any) -> int:
@@ -108,6 +149,7 @@ def base_record(provider: str, name: str, command: str) -> dict[str, Any]:
         "status": "Not installed" if shutil.which(command) is None else "Waiting for login",
         "limits": [],
         "activity": empty_activity(),
+        "sessions": [],
         "dashboardUrl": "",
         "launchCommand": command,
     }
@@ -121,14 +163,18 @@ def scan_claude(record: dict[str, Any]) -> None:
     projects = root / "projects"
     if projects.is_dir():
         for path in projects.glob("*/*.jsonl"):
+            model = "claude"
+            updated_at: Any = path.stat().st_mtime
             try:
                 with path.open(errors="replace") as handle:
                     for line_number, raw in enumerate(handle, 1):
-                        if '"usage"' not in raw or '"assistant"' not in raw:
-                            continue
                         try:
                             entry = json.loads(raw)
                             message = entry.get("message") or {}
+                            updated_at = entry.get("timestamp") or updated_at
+                            model = str(message.get("model") or model)
+                            if '"usage"' not in raw or '"assistant"' not in raw:
+                                continue
                             if entry.get("type") != "assistant" or message.get("role") != "assistant":
                                 continue
                             message_id = str(message.get("id") or entry.get("messageId") or "")
@@ -145,7 +191,10 @@ def scan_claude(record: dict[str, Any]) -> None:
                             continue
             except OSError:
                 continue
+            project = path.parent.name.lstrip("-").replace("-", "/")
+            add_session(record, path.stem, project, model, updated_at, path.stat().st_mtime)
     record["activity"] = finish()
+    finish_sessions(record)
 
     credentials = {}
     try:
@@ -219,13 +268,20 @@ def scan_codex(record: dict[str, Any]) -> None:
             continue
         for path in folder.rglob("*.jsonl"):
             model = "codex"
+            session_id = path.stem
+            cwd = ""
+            updated_at: Any = path.stat().st_mtime
             try:
                 for raw in path.open(errors="replace"):
                     try:
                         entry = json.loads(raw)
                         payload = entry.get("payload") or {}
+                        updated_at = entry.get("timestamp") or updated_at
                         if entry.get("type") == "turn_context":
                             model = str(payload.get("model") or model)
+                        elif entry.get("type") == "session_meta":
+                            session_id = str(payload.get("session_id") or payload.get("id") or session_id)
+                            cwd = str(payload.get("cwd") or cwd)
                         if payload.get("type") != "token_count":
                             continue
                         usage = (payload.get("info") or {}).get("last_token_usage") or {}
@@ -239,7 +295,10 @@ def scan_codex(record: dict[str, Any]) -> None:
                         continue
             except OSError:
                 continue
+            add_session(record, session_id, Path(cwd).name if cwd else "Codex session", model,
+                        updated_at, path.stat().st_mtime)
     record["activity"] = finish()
+    finish_sessions(record)
     if not record["installed"]:
         return
     if os.environ.get("NEOBRIX_AI_OFFLINE") == "1":
@@ -325,11 +384,29 @@ def scan_cursor(record: dict[str, Any]) -> None:
             for _, _, model in rows:
                 counts[str(model or "unknown")] = counts.get(str(model or "unknown"), 0) + 1
             activity["models"] = [{"name": k, "events": v} for k, v in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:4]]
+            try:
+                rows = conn.execute(
+                    "SELECT conversationId, title, model, updatedAt "
+                    "FROM conversation_summaries ORDER BY updatedAt DESC LIMIT ?", (SESSION_LIMIT,)
+                ).fetchall()
+                for conversation_id, title, model, updated_at in rows:
+                    add_session(record, conversation_id, title, model, updated_at)
+            except sqlite3.Error:
+                # Older Cursor tracking databases do not have summaries. They
+                # still expose a usable timestamp and model per conversation.
+                rows = conn.execute(
+                    "SELECT conversationId, MAX(timestamp), MAX(model) FROM ai_code_hashes "
+                    "WHERE conversationId IS NOT NULL GROUP BY conversationId "
+                    "ORDER BY MAX(timestamp) DESC LIMIT ?", (SESSION_LIMIT,)
+                ).fetchall()
+                for conversation_id, updated_at, model in rows:
+                    add_session(record, conversation_id, "Cursor session", model, updated_at)
         finally:
             conn.close()
     except sqlite3.Error:
         pass
     record["activity"] = activity
+    finish_sessions(record)
 
 
 def collect() -> dict[str, Any]:

@@ -50,6 +50,15 @@ class AiCollectorTest(unittest.TestCase):
         ])
         db.commit()
         db.close()
+        tracking = self.home / ".cursor/ai-tracking/ai-code-tracking.db"
+        tracking.parent.mkdir(parents=True)
+        db = sqlite3.connect(tracking)
+        db.execute("CREATE TABLE ai_code_hashes (timestamp INTEGER, conversationId TEXT, model TEXT)")
+        db.execute("CREATE TABLE conversation_summaries (conversationId TEXT PRIMARY KEY, title TEXT, model TEXT, updatedAt INTEGER)")
+        db.execute("INSERT INTO conversation_summaries VALUES (?, ?, ?, ?)",
+                   ("cursor-session", "Improve the AI tab", "composer-1", 2000000000000))
+        db.commit()
+        db.close()
 
     def run_collector(self, *args):
         result = subprocess.run(
@@ -81,16 +90,29 @@ class AiCollectorTest(unittest.TestCase):
         codex = self.home / ".codex"
         codex.mkdir()
         (codex / "auth.json").write_text('{"access_token":"CODEX_SECRET_MUST_NOT_LEAK"}')
+        session = codex / "sessions/2026/08/27/rollout-test.jsonl"
+        session.parent.mkdir(parents=True)
+        session.write_text("\n".join([
+            json.dumps({"timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "type": "session_meta",
+                        "payload": {"session_id": "codex-session", "cwd": "/projects/neobrix"}}),
+            json.dumps({"timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "type": "turn_context",
+                        "payload": {"model": "gpt-test"}}),
+        ]) + "\n")
 
         self.env["NEOBRIX_AI_OFFLINE"] = "1"
         raw, payload = self.run_collector()
-        self.assertEqual(payload["schemaVersion"], 1)
+        self.assertEqual(payload["schemaVersion"], 2)
         self.assertEqual([item["id"] for item in payload["providers"]], ["codex", "claude", "cursor"])
         cursor = payload["providers"][2]
         self.assertEqual(cursor["plan"], "Pro Plus")
         self.assertEqual(cursor["status"], "Active")
         claude_record = payload["providers"][1]
         self.assertEqual(claude_record["activity"]["todayTokens"], 15)
+        self.assertEqual(claude_record["sessions"][0]["id"], "session")
+        codex_record = payload["providers"][0]
+        self.assertEqual(codex_record["sessions"][0]["id"], "codex-session")
+        self.assertEqual(codex_record["sessions"][0]["label"], "neobrix")
+        self.assertEqual(cursor["sessions"][0]["label"], "Improve the AI tab")
         self.assertNotIn("SECRET_MUST_NOT_LEAK", raw)
         state = Path(self.env["XDG_STATE_HOME"]) / "neobrix/ai.json"
         self.assertEqual(stat.S_IMODE(state.stat().st_mode), 0o600)
