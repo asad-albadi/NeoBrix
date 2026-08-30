@@ -434,10 +434,20 @@ os_kernel() {
 }
 
 cpu_memory() {
-    local cpu memory
+    local cpu memory suffix cpu_limit
     cpu="$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1 | sed 's/(R)//g; s/(TM)//g; s/ CPU//; s/@.*//; s/^[0-9]*th Gen //; s/Intel //; s/AMD //; s/  */ /g; s/ *$//')"
     memory="$(awk '/MemTotal/{printf "%.0f", $2/1048576}' /proc/meminfo)"
-    hypr_text "${cpu:-processor} · ${memory:-?} GiB"
+    suffix=" · ${memory:-?} GiB"
+    # The capacity is the useful part of this row. Reserve room for it before
+    # shortening a verbose CPU name (notably APUs ending in "Radeon Graphics").
+    # A generic end-truncate would otherwise turn the RAM amount into only an
+    # ellipsis, which is exactly the information people look for here.
+    cpu_limit=$(( 42 - ${#suffix} ))
+    cpu="${cpu:-processor}"
+    if (( ${#cpu} > cpu_limit )); then
+        cpu="${cpu:0:cpu_limit-1}…"
+    fi
+    hypr_text "$cpu$suffix"
 }
 
 INFO_TITLE="$(machine_name)"
