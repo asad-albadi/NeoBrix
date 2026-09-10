@@ -49,7 +49,17 @@ def active_monitor(data):
     for m in mapping(data):
         if m["focused"]: return m["name"]
     return mapping(data)[0]["name"] if mapping(data) else ""
-def dispatch(*words): hypr("dispatch", *map(str, words))
+def dispatch(expr):
+    # NeoBrix uses Hyprland's Lua configuration API.  In that mode the legacy
+    # `hyprctl dispatch workspace 3` form is parsed as Lua and rejected; route
+    # every workspace action through the native dispatcher instead.
+    hypr("eval", "hl.dispatch(" + expr + ")")
+
+def focus_workspace(workspace):
+    dispatch("hl.dsp.focus({ workspace = " + json.dumps(workspace) + " })")
+
+def move_window(workspace):
+    dispatch("hl.dsp.window.move({ workspace = " + json.dumps(workspace) + ", silent = true })")
 
 p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd")
 sub.add_parser("show"); sub.add_parser("map")
@@ -61,22 +71,22 @@ elif a.cmd == "spaces": data["spaces"] = max(3, min(10, a.value)); save(data)
 elif a.cmd in ("focus", "move"):
     local = max(1, min(int(data["spaces"]), a.value))
     if not data.get("enabled"):
-        dispatch("workspace" if a.cmd == "focus" else "movetoworkspacesilent", local)
+        if a.cmd == "focus": focus_workspace(local)
+        else: move_window(local)
     else:
         mon = active_monitor(data); wid = workspace_id(data, mon, local)
-        # Keep an already-created workspace on its owner before using it.
-        dispatch("moveworkspacetomonitor", wid, mon)
-        dispatch("workspace" if a.cmd == "focus" else "movetoworkspacesilent", wid)
+        if a.cmd == "focus": focus_workspace(wid)
+        else: move_window(wid)
 elif a.cmd == "cycle":
     if not data.get("enabled"):
-        dispatch("workspace", "e+1" if a.value > 0 else "e-1")
+        focus_workspace("e+1" if a.value > 0 else "e-1")
     else:
         mon = active_monitor(data); ids = [workspace_id(data, mon, i) for i in range(1, int(data["spaces"]) + 1)]
         try: current = json.loads(hypr("-j", "activeworkspace")).get("id")
         except Exception: current = None
         index = ids.index(current) if current in ids else 0
         wid = ids[(index + (1 if a.value > 0 else -1)) % len(ids)]
-        dispatch("moveworkspacetomonitor", wid, mon); dispatch("workspace", wid)
+        focus_workspace(wid)
 if a.cmd in ("show", "map"):
     out = {"enabled": bool(data.get("enabled")), "spaces": int(data.get("spaces", 5)), "monitors": mapping(data)}
     for m in out["monitors"]: m["ids"] = [m["slot"] * out["spaces"] + i for i in range(1, out["spaces"] + 1)]
