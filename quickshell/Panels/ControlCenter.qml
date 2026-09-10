@@ -73,16 +73,6 @@ BrixPopup {
                 }
 
                 BrixButton {
-                    text: "OTHER"
-                    icon: "󰒓"
-                    fontSize: Theme.fontSm
-                    active: Panels.controlTab === "other"
-                    activeAccent: Theme.tertiary
-                    accent: Theme.surface
-                    onClicked: Panels.controlTab = "other"
-                }
-
-                BrixButton {
                     text: "CONNECTIVITY"
                     icon: Net.connected ? Net.icon : "󰤭"
                     fontSize: Theme.fontSm
@@ -123,6 +113,16 @@ BrixPopup {
                         Panels.controlTab = "notifications";
                         Notifs.markAllRead();
                     }
+                }
+
+                BrixButton {
+                    text: "OTHER"
+                    icon: "󰒓"
+                    fontSize: Theme.fontSm
+                    active: Panels.controlTab === "other"
+                    activeAccent: Theme.tertiary
+                    accent: Theme.surface
+                    onClicked: Panels.controlTab = "other"
                 }
 
                 Item { Layout.fillWidth: true }

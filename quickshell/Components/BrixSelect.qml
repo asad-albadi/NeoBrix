@@ -1,17 +1,16 @@
 // A value picked from a list.
 //
-// Expands in place rather than floating a popup over its neighbours. A floating
-// list has to escape the card it sits in, which means either a second window or
-// reparenting to the panel root and reasoning about z-order and clipping; a list
-// that pushes the layout down needs neither, and inside a panel this size the
-// difference is invisible to the person using it. It scrolls once the list is
-// taller than maxListHeight, so a monitor advertising twenty modes still fits.
+// The list is painted over the content below it rather than taking part in the
+// surrounding layout. That keeps the label and every neighbouring control
+// still while the menu is open, regardless of the fixed-height card or row in
+// which this selector is used. It scrolls once the list is taller than
+// maxListHeight, so a monitor advertising twenty modes still fits.
 
 import QtQuick
 import QtQuick.Layouts
 import qs.Theme
 
-ColumnLayout {
+Item {
     id: root
 
     // Either plain strings, or objects with `label` and `value`.
@@ -24,7 +23,9 @@ ColumnLayout {
 
     signal picked(var value)
 
-    spacing: Theme.spaceXs
+    implicitHeight: closed.height
+    // An open list must paint above later siblings in a ColumnLayout too.
+    z: open ? 100 : 0
 
     function labelOf(opt) { return opt !== null && typeof opt === "object" ? opt.label : opt; }
     function valueOf(opt) { return opt !== null && typeof opt === "object" ? opt.value : opt; }
@@ -46,8 +47,10 @@ ColumnLayout {
 
     // The closed control.
     BrixCard {
-        Layout.fillWidth: true
-        Layout.preferredHeight: 26
+        id: closed
+        anchors.top: parent.top
+        width: parent.width
+        height: 26
         radius: Theme.radiusXs
         color: root.enabled ? Theme.surfaceAlt : Theme.surfaceDeep
         shadowOffset: 0
@@ -87,9 +90,13 @@ ColumnLayout {
 
     // The open list.
     BrixCard {
-        Layout.fillWidth: true
+        id: menu
+        x: 0
+        y: closed.height + Theme.spaceXs
+        width: root.width
         visible: root.open && root.options.length > 0
-        Layout.preferredHeight: Math.min(root.maxListHeight, list.contentHeight + 4)
+        height: Math.min(root.maxListHeight, list.contentHeight + 4)
+        z: 1
         radius: Theme.radiusXs
         color: Theme.surfaceDeep
         shadowOffset: 0
