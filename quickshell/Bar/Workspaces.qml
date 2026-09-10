@@ -33,13 +33,16 @@ Item {
             if (root.monitor && ws.monitor && ws.monitor.name !== root.monitor.name) continue;
             byId[ws.id] = ws;
         }
+        const localIds = root.monitor ? WorkspaceMode.ids(root.monitor.name) : [];
+        if (WorkspaceMode.enabled && root.monitor && localIds.length > 0)
+            return localIds.map((id, index) => ({ id: id, local: index + 1, ws: byId[id] || null }));
         const ids = Object.keys(byId).map(Number);
         const highest = ids.length > 0 ? Math.max.apply(null, ids) : 0;
         const upTo = Math.max(root.minSlots, highest);
 
         const out = [];
         for (let i = 1; i <= upTo; i++)
-            out.push({ id: i, ws: byId[i] || null });
+            out.push({ id: i, local: i, ws: byId[i] || null });
         return out;
     }
 
@@ -127,7 +130,7 @@ Item {
                         spacing: 3
 
                         Text {
-                            text: slot.modelData.id
+                            text: slot.modelData.local
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSm
                             font.weight: slot.focused ? Theme.weightHeavy : Theme.weightBold
@@ -197,7 +200,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: Hypr.focusWorkspace(slot.modelData.id)
+                    onClicked: WorkspaceMode.enabled ? WorkspaceMode.focus(slot.modelData.local) : Hypr.focusWorkspace(slot.modelData.id)
                 }
 
                 WorkspacePreview {
@@ -246,7 +249,8 @@ Item {
         anchors.fill: parent
         acceptedButtons: Qt.NoButton
         onWheel: wev => {
-            Hypr.focusWorkspaceRelative(wev.angleDelta.y > 0 ? "m-1" : "m+1");
+            WorkspaceMode.enabled ? WorkspaceMode.cycle(wev.angleDelta.y > 0 ? -1 : 1)
+                                  : Hypr.focusWorkspaceRelative(wev.angleDelta.y > 0 ? "m-1" : "m+1");
         }
     }
 }

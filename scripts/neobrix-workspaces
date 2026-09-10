@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Per-monitor workspace mapping for NeoBrix.
+
+Hyprland workspace IDs are global. This keeps a stable, private ID range for
+each physical output and presents the same local 1..N set on every display.
+"""
+import argparse, json, os, subprocess
+from pathlib import Path
+
+STATE = Path(os.environ.get("XDG_STATE_HOME", Path.home()/".local/state")) / "neobrix/workspaces.json"
+
+def load():
+    try: return json.loads(STATE.read_text())
+    except Exception: return {"enabled": False, "spaces": 5, "slots": {}}
+def save(data):
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    temp = STATE.with_suffix(".tmp")
+    temp.write_text(json.dumps(data, separators=(",", ":")) + "\n")
+    os.chmod(temp, 0o600); temp.replace(STATE)
+def hypr(*args):
+    return subprocess.run(["hyprctl", *args], text=True, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL).stdout
+def monitors():
+    try: data = json.loads(hypr("-j", "monitors"))
+    except Exception: data = []
+    data.sort(key=lambda m: (m.get("x", 0), m.get("y", 0), m.get("name", "")))
+    return data
+def key(m):
+    # Connector names change through docks. A serial is best; description is a
+    # useful fallback, with the connector only for anonymous virtual outputs.
+    return "|".join(str(m.get(k, "")) for k in ("make", "model", "serial", "description")) or m.get("name", "")
+def mapping(data):
+    slots = data.setdefault("slots", {})
+    used = set(slots.values())
+    result = []
+    for m in monitors():
+        k = key(m)
+        if k not in slots:
+            n = 0
+            while n in used: n += 1
+            slots[k] = n; used.add(n)
+        result.append({"name": m["name"], "slot": slots[k], "focused": bool(m.get("focused"))})
+    return result
+def workspace_id(data, monitor, local):
+    for m in mapping(data):
+        if m["name"] == monitor: return m["slot"] * int(data["spaces"]) + local
+    return local
+def active_monitor(data):
+    for m in mapping(data):
+        if m["focused"]: return m["name"]
+    return mapping(data)[0]["name"] if mapping(data) else ""
+def dispatch(*words): hypr("dispatch", *map(str, words))
+
+p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd")
+sub.add_parser("show"); sub.add_parser("map")
+for name in ("enabled", "spaces", "focus", "move", "cycle"):
+    q = sub.add_parser(name); q.add_argument("value", type=int)
+a = p.parse_args(); data = load(); mapping(data)
+if a.cmd == "enabled": data["enabled"] = bool(a.value); save(data)
+elif a.cmd == "spaces": data["spaces"] = max(3, min(10, a.value)); save(data)
+elif a.cmd in ("focus", "move"):
+    local = max(1, min(int(data["spaces"]), a.value))
+    if not data.get("enabled"):
+        dispatch("workspace" if a.cmd == "focus" else "movetoworkspacesilent", local)
+    else:
+        mon = active_monitor(data); wid = workspace_id(data, mon, local)
+        # Keep an already-created workspace on its owner before using it.
+        dispatch("moveworkspacetomonitor", wid, mon)
+        dispatch("workspace" if a.cmd == "focus" else "movetoworkspacesilent", wid)
+elif a.cmd == "cycle":
+    if not data.get("enabled"):
+        dispatch("workspace", "e+1" if a.value > 0 else "e-1")
+    else:
+        mon = active_monitor(data); ids = [workspace_id(data, mon, i) for i in range(1, int(data["spaces"]) + 1)]
+        try: current = json.loads(hypr("-j", "activeworkspace")).get("id")
+        except Exception: current = None
+        index = ids.index(current) if current in ids else 0
+        wid = ids[(index + (1 if a.value > 0 else -1)) % len(ids)]
+        dispatch("moveworkspacetomonitor", wid, mon); dispatch("workspace", wid)
+if a.cmd in ("show", "map"):
+    out = {"enabled": bool(data.get("enabled")), "spaces": int(data.get("spaces", 5)), "monitors": mapping(data)}
+    for m in out["monitors"]: m["ids"] = [m["slot"] * out["spaces"] + i for i in range(1, out["spaces"] + 1)]
+    print(json.dumps(out, separators=(",", ":")))

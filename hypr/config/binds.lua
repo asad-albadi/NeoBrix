@@ -93,17 +93,17 @@ return function(ctx)
     -- workspaces 1..10 with 10 on the '0' key.
     for i = 1, 10 do
         local key = i % 10
-        hl.bind(mod .. " + " .. key,         hl.dsp.focus({ workspace = i }))
-        hl.bind(mod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i, silent = true }))
+        hl.bind(mod .. " + " .. key,         run("neobrix-workspaces focus " .. i))
+        hl.bind(mod .. " + SHIFT + " .. key, run("neobrix-workspaces move " .. i))
     end
 
     -- e-1/e+1 rather than -1/+1, matching the wheel and CONTROL+TAB: it steps
     -- between workspaces that exist instead of walking into empty ones.
-    hl.bind(mod .. " + CONTROL + left",  hl.dsp.focus({ workspace = "e-1" }))
-    hl.bind(mod .. " + CONTROL + right", hl.dsp.focus({ workspace = "e+1" }))
-    hl.bind(mod .. " + CONTROL + TAB",   hl.dsp.focus({ workspace = "e+1" }))
-    hl.bind(mod .. " + mouse_down",      hl.dsp.focus({ workspace = "e+1" }))
-    hl.bind(mod .. " + mouse_up",        hl.dsp.focus({ workspace = "e-1" }))
+    hl.bind(mod .. " + CONTROL + left",  run("neobrix-workspaces cycle -1"))
+    hl.bind(mod .. " + CONTROL + right", run("neobrix-workspaces cycle 1"))
+    hl.bind(mod .. " + CONTROL + TAB",   run("neobrix-workspaces cycle 1"))
+    hl.bind(mod .. " + mouse_down",      run("neobrix-workspaces cycle 1"))
+    hl.bind(mod .. " + mouse_up",        run("neobrix-workspaces cycle -1"))
 
     -- "Go back to where I was". Hyprland's Lua workspace parser has no
     -- "previous" token, so the last workspace is tracked from the event stream —

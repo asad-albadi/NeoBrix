@@ -73,6 +73,16 @@ BrixPopup {
                 }
 
                 BrixButton {
+                    text: "OTHER"
+                    icon: "󰒓"
+                    fontSize: Theme.fontSm
+                    active: Panels.controlTab === "other"
+                    activeAccent: Theme.tertiary
+                    accent: Theme.surface
+                    onClicked: Panels.controlTab = "other"
+                }
+
+                BrixButton {
                     text: "CONNECTIVITY"
                     icon: Net.connected ? Net.icon : "󰤭"
                     fontSize: Theme.fontSm
@@ -166,6 +176,11 @@ BrixPopup {
                     anchors.fill: parent
                     visible: Panels.controlTab === "ai"
                     active: root.open && visible
+                }
+
+                OtherTab {
+                    anchors.fill: parent
+                    visible: Panels.controlTab === "other"
                 }
 
                 NotificationCenter {

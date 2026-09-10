@@ -40,6 +40,7 @@ ShellRoot {
         Apps.all.length,
         Session.canHibernate,
         Ai.providers.length,
+        WorkspaceMode.enabled,
         Wall.current
     ]
 
