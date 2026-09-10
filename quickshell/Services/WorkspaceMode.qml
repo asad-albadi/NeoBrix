@@ -14,7 +14,24 @@ Singleton {
     function focus(local) { action.command = ["neobrix-workspaces", "focus", String(local)]; action.running = true }
     function cycle(delta) { action.command = ["neobrix-workspaces", "cycle", String(delta)]; action.running = true }
     function consume(text) { try { const v = JSON.parse(text); enabled = !!v.enabled; spaces = v.spaces || 5; monitors = v.monitors || [] } catch(e) {} }
-    Process { id: probe; command: ["neobrix-workspaces", "show"]; running: true; stdout: StdioCollector { onStreamFinished: root.consume(text) }; stderr: StdioCollector {} }
-    Process { id: change; running: false; onExited: root.refresh(); stderr: StdioCollector {} }
-    Process { id: action; running: false; stderr: StdioCollector {} }
+    Process {
+        id: probe
+        command: ["neobrix-workspaces", "show"]
+        running: true
+        stdout: StdioCollector {
+            onStreamFinished: root.consume(text)
+        }
+        stderr: StdioCollector {}
+    }
+    Process {
+        id: change
+        running: false
+        onExited: root.refresh()
+        stderr: StdioCollector {}
+    }
+    Process {
+        id: action
+        running: false
+        stderr: StdioCollector {}
+    }
 }
