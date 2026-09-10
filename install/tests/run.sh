@@ -1011,6 +1011,43 @@ test_editor_terminal_shell() {
     assert_has "unrelated Cursor settings survive" '"editor.fontSize": 15' "$(cat "$conf")"
 }
 
+test_obsidian_theme() {
+    case_ "Obsidian follows the active palette without losing vault settings"
+
+    local dir="$TMP/obsidian" vault="$TMP/obsidian-vault"
+    mkdir -p "$dir/cfg/obsidian" "$vault/.obsidian"
+    printf '{"vaults":{"test":{"path":"%s"}}}\n' "$vault" > "$dir/cfg/obsidian/obsidian.json"
+    printf '{"nativeMenus":true,"baseFontSize":17}\n' > "$vault/.obsidian/appearance.json"
+
+    env "HOME=$dir/home" "XDG_CONFIG_HOME=$dir/cfg" \
+        "$REPO/scripts/neobrix-generate-obsidian-theme" dusk >/dev/null 2>&1
+
+    local theme="$vault/.obsidian/themes/NeoBrix/theme.css"
+    local manifest="$vault/.obsidian/themes/NeoBrix/manifest.json"
+    local thumbnail="$vault/.obsidian/themes/NeoBrix/screenshot.png"
+    [[ -r $theme && -r $manifest && -r $thumbnail ]] && ok "a vault-local theme is written" \
+                                  || bad "a vault-local theme is written"
+    assert_has "the light selector is covered" '.theme-light' "$(cat "$theme")"
+    assert_has "the dark selector is covered" '.theme-dark' "$(cat "$theme")"
+
+    local dusk; dusk="$(bash -c 'source '"$REPO"'/scripts/lib/palette.sh; neobrix_palette dusk; printf %s "$PRIMARY"')"
+    assert_has "the theme follows the requested NeoBrix palette" "--interactive-accent: #$dusk" "$(cat "$theme")"
+    assert_eq "the generated theme is selected" "NeoBrix" \
+              "$(jq -r '.theme' "$vault/.obsidian/appearance.json")"
+    assert_eq "unrelated vault settings survive" "true" \
+              "$(jq -r '.nativeMenus' "$vault/.obsidian/appearance.json")"
+    assert_eq "the theme manifest is named NeoBrix" "NeoBrix" \
+              "$(jq -r '.name' "$manifest")"
+
+    # Without Obsidian's vault registry, the generator must leave a machine
+    # alone instead of guessing at arbitrary directories named .obsidian.
+    local bare="$TMP/obsidian-none"; mkdir -p "$bare/cfg"
+    env "HOME=$bare/home" "XDG_CONFIG_HOME=$bare/cfg" \
+        "$REPO/scripts/neobrix-generate-obsidian-theme" >/dev/null 2>&1 || true
+    [[ -e "$bare/cfg/obsidian" ]] && bad "it skips a machine without Obsidian" \
+                                    || ok "it skips a machine without Obsidian"
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 TMP="$(mktemp -d)"
 if (( DO_LOCAL )); then
@@ -1030,6 +1067,7 @@ if (( DO_LOCAL )); then
     test_btop_theme
     test_zed_theme
     test_editor_terminal_shell
+    test_obsidian_theme
 fi
 (( DO_CONTAINER )) && test_container
 (( DO_CONTAINER )) || printf '\n%s──%s the container case was not run (pass --container)\n' "$c_dim" "$c_off"

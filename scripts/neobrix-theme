@@ -616,6 +616,13 @@ if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" ]]; then
     "$(dirname "$(readlink -f "$0")")/neobrix-generate-zen-theme" >/dev/null 2>&1 || true
 fi
 
+# Obsidian themes are scoped to individual vaults. The generator discovers the
+# local registered vaults and refreshes their current palette because Obsidian's
+# Linux system-theme observer does not reliably notice live portal changes.
+if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-obsidian-theme" ]]; then
+    "$(dirname "$(readlink -f "$0")")/neobrix-generate-obsidian-theme" "$MODE" >/dev/null 2>&1 || true
+fi
+
 # ── Dark Reader ─────────────────────────────────────────────────────────────
 # Regenerates the importable settings + dynamic fixes. These carry both schemes,
 # so they do not depend on $MODE; regenerated here only so a palette edit reaches
@@ -643,4 +650,4 @@ pkill -SIGUSR1 -x kitty 2>/dev/null || true
 # hyprlock reads its config when it launches, so it needs no signal.
 
 printf '%s\n' "$MODE" > "$STATE_DIR/theme"
-printf 'applied %s to terminals, GTK, Qt, KDE, hyprlock, the editor and Zen\n' "$MODE"
+printf 'applied %s to terminals, GTK, Qt, KDE, hyprlock, the editor, Zen and Obsidian\n' "$MODE"
