@@ -20,6 +20,9 @@ def save(data):
 def hypr(*args):
     return subprocess.run(["hyprctl", *args], text=True, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL).stdout
+def hypr_json(*args):
+    try: return json.loads(hypr("-j", *args))
+    except Exception: return []
 def monitors():
     try: data = json.loads(hypr("-j", "monitors"))
     except Exception: data = []
@@ -39,7 +42,8 @@ def mapping(data):
             n = 0
             while n in used: n += 1
             slots[k] = n; used.add(n)
-        result.append({"name": m["name"], "slot": slots[k], "focused": bool(m.get("focused"))})
+        result.append({"name": m["name"], "id": m.get("id"), "slot": slots[k],
+                       "focused": bool(m.get("focused"))})
     return result
 def workspace_id(data, monitor, local):
     for m in mapping(data):
@@ -61,13 +65,96 @@ def focus_workspace(workspace):
 def move_window(workspace):
     dispatch("hl.dsp.window.move({ workspace = " + json.dumps(workspace) + ", silent = true })")
 
+def move_named_window(address, workspace):
+    dispatch("hl.dsp.window.move({ window = " + json.dumps("address:" + address) +
+             ", workspace = " + json.dumps(workspace) + ", silent = true })")
+
+def move_workspace(workspace, monitor):
+    dispatch("hl.dsp.workspace.move({ workspace = " + json.dumps(workspace) +
+             ", monitor = " + json.dumps(monitor) + " })")
+
+def reconcile_slots(data):
+    """Repair a saved display-to-range assignment from visible windows.
+
+    A dock can make outputs appear in a different order than the one in which
+    their slots were first saved.  On the first enable, infer an unambiguous
+    existing layout from client workspace IDs rather than showing every window
+    as if it belonged to the other display.
+    """
+    owners = mapping(data)
+    candidates = [m["slot"] for m in owners]
+    clients = hypr_json("clients")
+    proposed = {}
+    for owner in owners:
+        ids = [c.get("workspace", {}).get("id") for c in clients
+               if c.get("monitor") == owner["id"]]
+        scores = {slot: sum(slot * int(data["spaces"]) < wid <= (slot + 1) * int(data["spaces"])
+                             for wid in ids if isinstance(wid, int))
+                  for slot in candidates}
+        best = max(candidates, key=lambda slot: scores[slot])
+        # Never guess from an empty display or a tie.  Keeping the saved slot
+        # is safer than moving the indicator range without evidence.
+        if scores[best] > scores[owner["slot"]] and list(scores.values()).count(scores[best]) == 1:
+            proposed[owner["id"]] = best
+
+    final = {m["id"]: proposed.get(m["id"], m["slot"]) for m in owners}
+    if len(set(final.values())) != len(final):
+        return
+    slots = data.setdefault("slots", {})
+    for raw in monitors():
+        if raw.get("id") in final:
+            slots[key(raw)] = final[raw["id"]]
+
+def migrate_spaces(data, old_spaces, new_spaces):
+    """Preserve each monitor's local workspaces across an ID-layout change.
+
+    The global ID ranges are based on the workspace count.  For example, when
+    changing from five to three spaces, monitor slot 1 changes from 6..10 to
+    4..6.  Simply saving the new number would make its old local workspace 1
+    appear as local workspace 3, and strand local workspaces 4 and 5.  Move
+    every client deliberately: retained local numbers follow their new ID;
+    removed local numbers collapse into local workspace 1.
+    """
+    owners = {m["id"]: m for m in mapping(data)}
+    changes = []
+    for client in hypr_json("clients"):
+        owner = owners.get(client.get("monitor"))
+        workspace = client.get("workspace", {}).get("id")
+        address = client.get("address")
+        if not owner or not isinstance(workspace, int) or not address:
+            continue
+        local = workspace - owner["slot"] * old_spaces
+        if local < 1 or local > old_spaces:
+            continue
+        retained = local if local <= new_spaces else 1
+        target = owner["slot"] * new_spaces + retained
+        if target != workspace:
+            changes.append((address, target, owner["name"]))
+
+    # Moving a window creates a missing destination workspace.  Only then can
+    # Hyprland move that workspace to its new owner.  A destination may also
+    # currently belong to a different slot's old range, in which case this
+    # final placement makes its ownership unambiguous.
+    for address, target, _ in changes:
+        move_named_window(address, target)
+    for _, target, monitor in {(a, t, m) for a, t, m in changes}:
+        move_workspace(target, monitor)
+
 p = argparse.ArgumentParser(); sub = p.add_subparsers(dest="cmd")
 sub.add_parser("show"); sub.add_parser("map")
 for name in ("enabled", "spaces", "focus", "move", "cycle"):
     q = sub.add_parser(name); q.add_argument("value", type=int)
 a = p.parse_args(); data = load(); mapping(data)
-if a.cmd == "enabled": data["enabled"] = bool(a.value); save(data)
-elif a.cmd == "spaces": data["spaces"] = max(3, min(10, a.value)); save(data)
+if a.cmd == "enabled":
+    if bool(a.value) and not data.get("enabled"):
+        reconcile_slots(data)
+    data["enabled"] = bool(a.value); save(data)
+elif a.cmd == "spaces":
+    old_spaces = int(data.get("spaces", 5))
+    new_spaces = max(3, min(10, a.value))
+    if data.get("enabled") and new_spaces != old_spaces:
+        migrate_spaces(data, old_spaces, new_spaces)
+    data["spaces"] = new_spaces; save(data)
 elif a.cmd in ("focus", "move"):
     local = max(1, min(int(data["spaces"]), a.value))
     if not data.get("enabled"):

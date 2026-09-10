@@ -1011,6 +1011,57 @@ test_editor_terminal_shell() {
     assert_has "unrelated Cursor settings survive" '"editor.fontSize": 15' "$(cat "$conf")"
 }
 
+test_workspace_count_migration() {
+    case_ "reducing per-monitor workspaces retains local meaning and collects removed ones"
+
+    local dir="$TMP/workspace-count"
+    mkdir -p "$dir/bin" "$dir/state/neobrix"
+    cat > "$dir/bin/hyprctl" <<'SH'
+#!/usr/bin/env bash
+if [[ $1 == -j && $2 == monitors ]]; then
+    printf '%s\n' '[{"id":0,"name":"A","make":"Acme","model":"Panel","serial":"a","description":"A","x":0,"y":0,"focused":true},{"id":1,"name":"B","make":"Acme","model":"Panel","serial":"b","description":"B","x":1920,"y":0,"focused":false}]'
+elif [[ $1 == -j && $2 == clients ]]; then
+    if [[ ${HYPR_LAYOUT:-normal} == inverse ]]; then
+        printf '%s\n' '[{"address":"0xa7","monitor":0,"workspace":{"id":7}},{"address":"0xb1","monitor":1,"workspace":{"id":1}},{"address":"0xb2","monitor":1,"workspace":{"id":2}}]'
+    else
+        printf '%s\n' '[{"address":"0xa4","monitor":0,"workspace":{"id":4}},{"address":"0xb6","monitor":1,"workspace":{"id":6}},{"address":"0xb9","monitor":1,"workspace":{"id":9}}]'
+    fi
+else
+    printf '%s\n' "$*" >> "$HYPR_LOG"
+fi
+SH
+    chmod +x "$dir/bin/hyprctl"
+    printf '%s\n' '{"enabled":true,"spaces":5,"slots":{"Acme|Panel|a|A":0,"Acme|Panel|b|B":1}}' \
+        > "$dir/state/neobrix/workspaces.json"
+
+    env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "HYPR_LOG=$dir/hypr.log" \
+        "$REPO/scripts/neobrix-workspaces" spaces 3
+
+    local calls; calls="$(cat "$dir/hypr.log")"
+    assert_has "the removed first-display workspace goes to its local first" \
+        'window = "address:0xa4", workspace = 1' "$calls"
+    assert_has "a retained second-display workspace keeps its local position" \
+        'window = "address:0xb6", workspace = 4' "$calls"
+    assert_has "a removed second-display workspace joins its local first" \
+        'window = "address:0xb9", workspace = 4' "$calls"
+    assert_has "each destination workspace is assigned to its owner" \
+        'workspace = 4, monitor = "B"' "$calls"
+    assert_eq "the reduced count is saved" "3" \
+        "$(jq -r '.spaces' "$dir/state/neobrix/workspaces.json")"
+
+    # An output order can change between docked sessions.  When enabling from
+    # the old normal layout, visible client IDs are enough to repair an
+    # otherwise inverted saved assignment without moving those clients.
+    printf '%s\n' '{"enabled":false,"spaces":5,"slots":{"Acme|Panel|a|A":0,"Acme|Panel|b|B":1}}' \
+        > "$dir/state/neobrix/workspaces.json"
+    env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "HYPR_LOG=$dir/hypr.log" HYPR_LAYOUT=inverse \
+        "$REPO/scripts/neobrix-workspaces" enabled 1
+    assert_eq "enabling repairs an evidenced inverted first-display slot" "1" \
+        "$(jq -r '.slots["Acme|Panel|a|A"]' "$dir/state/neobrix/workspaces.json")"
+    assert_eq "enabling repairs an evidenced inverted second-display slot" "0" \
+        "$(jq -r '.slots["Acme|Panel|b|B"]' "$dir/state/neobrix/workspaces.json")"
+}
+
 test_obsidian_theme() {
     case_ "Obsidian follows the active palette without losing vault settings"
 
@@ -1067,6 +1118,7 @@ if (( DO_LOCAL )); then
     test_btop_theme
     test_zed_theme
     test_editor_terminal_shell
+    test_workspace_count_migration
     test_obsidian_theme
 fi
 (( DO_CONTAINER )) && test_container
