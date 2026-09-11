@@ -105,6 +105,37 @@ def reconcile_slots(data):
         if raw.get("id") in final:
             slots[key(raw)] = final[raw["id"]]
 
+def migrate_on_enable(data):
+    """Put every ordinary window in the active display's local ID range.
+
+    The mode may be enabled after a normal Hyprland session, or after docking
+    to displays whose saved slots were created much earlier.  In either case a
+    window can be on an ID which the per-monitor bar does not represent.  Keep
+    a local number already in the display's range; otherwise collect it into
+    that display's local workspace 1.
+    """
+    spaces = int(data["spaces"])
+    owners = {m["id"]: m for m in mapping(data)}
+    changes = []
+    for client in hypr_json("clients"):
+        owner = owners.get(client.get("monitor"))
+        workspace = client.get("workspace", {}).get("id")
+        address = client.get("address")
+        if not owner or client.get("pinned") or not isinstance(workspace, int) or workspace < 1 or not address:
+            continue
+        local = workspace - owner["slot"] * spaces
+        target = workspace if 1 <= local <= spaces else owner["slot"] * spaces + 1
+        if target != workspace:
+            changes.append((address, target, owner["name"]))
+
+    # A window move creates a missing destination.  Place the resulting
+    # workspace on its owner afterwards, including when its numerical ID used
+    # to belong to a disconnected display's old range.
+    for address, target, _ in changes:
+        move_named_window(address, target)
+    for _, target, monitor in {(a, t, m) for a, t, m in changes}:
+        move_workspace(target, monitor)
+
 def migrate_spaces(data, old_spaces, new_spaces):
     """Preserve each monitor's local workspaces across an ID-layout change.
 
@@ -148,6 +179,7 @@ a = p.parse_args(); data = load(); mapping(data)
 if a.cmd == "enabled":
     if bool(a.value) and not data.get("enabled"):
         reconcile_slots(data)
+        migrate_on_enable(data)
     data["enabled"] = bool(a.value); save(data)
 elif a.cmd == "spaces":
     old_spaces = int(data.get("spaces", 5))

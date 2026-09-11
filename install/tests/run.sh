@@ -1023,6 +1023,8 @@ if [[ $1 == -j && $2 == monitors ]]; then
 elif [[ $1 == -j && $2 == clients ]]; then
     if [[ ${HYPR_LAYOUT:-normal} == inverse ]]; then
         printf '%s\n' '[{"address":"0xa7","monitor":0,"workspace":{"id":7}},{"address":"0xb1","monitor":1,"workspace":{"id":1}},{"address":"0xb2","monitor":1,"workspace":{"id":2}}]'
+    elif [[ ${HYPR_LAYOUT:-normal} == stale ]]; then
+        printf '%s\n' '[{"address":"0xa1","monitor":0,"workspace":{"id":1}},{"address":"0xb16","monitor":1,"workspace":{"id":16}}]'
     else
         printf '%s\n' '[{"address":"0xa4","monitor":0,"workspace":{"id":4}},{"address":"0xb6","monitor":1,"workspace":{"id":6}},{"address":"0xb9","monitor":1,"workspace":{"id":9}}]'
     fi
@@ -1060,6 +1062,22 @@ SH
         "$(jq -r '.slots["Acme|Panel|a|A"]' "$dir/state/neobrix/workspaces.json")"
     assert_eq "enabling repairs an evidenced inverted second-display slot" "0" \
         "$(jq -r '.slots["Acme|Panel|b|B"]' "$dir/state/neobrix/workspaces.json")"
+
+    # New physical displays receive fresh slots, but their ordinary pre-mode
+    # workspace IDs do not. Enabling must move those windows into the new
+    # ranges, otherwise the per-monitor bar has no slot in which to show them.
+    printf '%s\n' '{"enabled":false,"spaces":5,"slots":{"Acme|Panel|a|A":2,"Acme|Panel|b|B":3}}' \
+        > "$dir/state/neobrix/workspaces.json"
+    : > "$dir/hypr.log"
+    env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "HYPR_LOG=$dir/hypr.log" HYPR_LAYOUT=stale \
+        "$REPO/scripts/neobrix-workspaces" enabled 1
+    calls="$(cat "$dir/hypr.log")"
+    assert_has "enabling collects an out-of-range first-display window" \
+        'window = "address:0xa1", workspace = 11' "$calls"
+    assert_lacks "a window already in its display range is left there" \
+        'window = "address:0xb16"' "$calls"
+    assert_has "the created workspace is placed on its display" \
+        'workspace = 11, monitor = "A"' "$calls"
 }
 
 test_obsidian_theme() {
