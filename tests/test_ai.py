@@ -27,6 +27,7 @@ class AiCollectorTest(unittest.TestCase):
             "XDG_STATE_HOME": str(self.root / "state"),
             "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", ""),
         })
+        self.executable("agy", "#!/bin/sh\nexit 1\n")
 
     def tearDown(self):
         self.temp.cleanup()
@@ -107,7 +108,7 @@ class AiCollectorTest(unittest.TestCase):
         self.env["NEOBRIX_AI_OFFLINE"] = "1"
         raw, payload = self.run_collector()
         self.assertEqual(payload["schemaVersion"], 2)
-        self.assertEqual([item["id"] for item in payload["providers"]], ["codex", "claude", "cursor"])
+        self.assertEqual([item["id"] for item in payload["providers"]], ["codex", "claude", "cursor", "antigravity"])
         cursor = payload["providers"][2]
         self.assertEqual(cursor["plan"], "Pro Plus")
         self.assertEqual(cursor["status"], "Active")
@@ -144,6 +145,45 @@ for line in sys.stdin:
         self.assertEqual(codex["plan"], "Plus")
         self.assertEqual(codex["limits"][0]["label"], "5-hour")
         self.assertEqual(codex["limits"][0]["usedPercent"], 25)
+
+    def test_antigravity_quota_sessions_and_private_fields(self):
+        payload = {"status": "SUCCESS", "command": {"name": "usage", "data": {
+            "secret": "SECRET_MUST_NOT_LEAK", "groups": [{"name": "Gemini Models", "buckets": [
+                {"window": "weekly", "remaining_fraction": 0.75, "reset_time": "2026-09-20T04:55:50Z"}]}]}}}
+        self.executable("agy", "#!/usr/bin/env python3\nimport json,sys\n"
+                        "assert sys.argv[1:] == ['--print', '/usage', '--output-format', 'json']\n"
+                        + "print(" + repr(json.dumps(payload)) + ")\n")
+        root = self.home / ".gemini/antigravity-cli"
+        root.mkdir(parents=True)
+        db = sqlite3.connect(root / "conversation_summaries.db")
+        db.execute("CREATE TABLE conversation_summaries (conversation_id TEXT, title TEXT, workspace_uris TEXT, last_modified_time TEXT)")
+        db.execute("INSERT INTO conversation_summaries VALUES (?, ?, ?, ?)",
+                   ("test-session", "Fix desktop settings", '["file:///projects/neobrix"]', dt.datetime.now(dt.timezone.utc).isoformat()))
+        db.execute("INSERT INTO conversation_summaries VALUES (?, ?, ?, ?)",
+                   ("placeholder", "", "[]", "0001-01-01 00:00:00+00:00"))
+        db.commit()
+        db.close()
+        # Test this provider alone; unrelated vendor APIs are not needed.
+        import runpy
+        from unittest.mock import patch
+        module = runpy.run_path(str(COLLECTOR))
+        with patch.dict(os.environ, self.env):
+            record = module["base_record"]("antigravity", "Antigravity", "agy")
+            module["scan_antigravity"](record)
+        self.assertTrue(record["authenticated"])
+        self.assertEqual(record["limits"][0]["usedPercent"], 25)
+        self.assertEqual(record["limits"][0]["resetsAt"], "2026-09-20T04:55:50Z")
+        self.assertEqual(record["sessions"][0]["label"], "Fix desktop settings")
+        self.assertEqual(len(record["sessions"]), 1)
+        self.assertEqual(record["activity"]["todaySessions"], 1)
+        self.assertFalse(record["activity"]["tokensAvailable"])
+        self.assertNotIn("SECRET_MUST_NOT_LEAK", json.dumps(record))
+        self.env["NEOBRIX_AI_OFFLINE"] = "1"
+        with patch.dict(os.environ, self.env):
+            offline = module["base_record"]("antigravity", "Antigravity", "agy")
+            module["scan_antigravity"](offline)
+        self.assertFalse(offline["authenticated"])
+        self.assertEqual(len(offline["sessions"]), 1)
 
     def test_show_returns_the_last_atomic_snapshot(self):
         self.env["NEOBRIX_AI_OFFLINE"] = "1"

@@ -13,13 +13,13 @@ Singleton {
     property string updatedAt: ""
     property string error: ""
     property bool refreshing: false
-    property var visibility: ({ codex: true, claude: true, cursor: true })
+    property var visibility: ({ codex: true, claude: true, cursor: true, antigravity: true })
     readonly property var visibleProviders: providers.filter(item => isVisible(item.id))
 
     function isVisible(id) { return visibility[id] !== false; }
 
     function setVisible(id, shown) {
-        if (!["codex", "claude", "cursor"].includes(id)) return;
+        if (!["codex", "claude", "cursor", "antigravity"].includes(id)) return;
         const next = Object.assign({}, visibility);
         next[id] = shown;
         visibility = next;
@@ -37,7 +37,8 @@ Singleton {
                 if (saved && typeof saved === "object")
                     root.visibility = { codex: saved.codex !== false,
                                         claude: saved.claude !== false,
-                                        cursor: saved.cursor !== false };
+                                        cursor: saved.cursor !== false,
+                                        antigravity: saved.antigravity !== false };
             } catch (e) { /* First run or invalid preferences: show all. */ }
         }
     }
@@ -70,7 +71,8 @@ Singleton {
             launch(id);
             return;
         }
-        const args = id === "codex" ? ["resume", session.id] : ["--resume", session.id];
+        const args = id === "codex" ? ["resume", session.id]
+                   : id === "antigravity" ? ["--conversation", session.id] : ["--resume", session.id];
         resumeProc.command = ["uwsm", "app", "--", "kitty", "--class", "neobrix-ai",
                               "--title", item.name + " session", item.launchCommand].concat(args);
         resumeProc.running = true;

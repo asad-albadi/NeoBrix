@@ -4,6 +4,7 @@
 
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import qs.Theme
 import qs.Components
 import qs.Services
@@ -127,7 +128,7 @@ Item {
             }
 
             Repeater {
-                model: ["codex", "claude", "cursor"]
+                model: ["codex", "claude", "cursor", "antigravity"]
                 delegate: BrixButton {
                     required property string modelData
                     text: modelData.toUpperCase()
@@ -135,7 +136,8 @@ Item {
                     fontSize: Theme.fontXs
                     active: Ai.isVisible(modelData)
                     activeAccent: modelData === "codex" ? Theme.tertiary
-                                  : modelData === "claude" ? Theme.primary : Theme.info
+                                  : modelData === "claude" ? Theme.primary
+                                  : modelData === "antigravity" ? Theme.secondary : Theme.info
                     accent: Theme.surface
                     onClicked: Ai.setVisible(modelData, !Ai.isVisible(modelData))
                 }
@@ -156,9 +158,20 @@ Item {
             color: Theme.foregroundDim
         }
 
-        GridLayout {
+        Flickable {
+            id: accountScroll
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: root.selectedProvider === null && Ai.visibleProviders.length > 0
+            clip: true
+            contentWidth: Math.max(width, Ai.visibleProviders.length * 265)
+            contentHeight: height
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.horizontal: ScrollBar { policy: accountScroll.contentWidth > accountScroll.width ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
+
+        GridLayout {
+            width: accountScroll.contentWidth - Theme.shadowSm
+            height: accountScroll.height - 12
             columns: Math.max(1, Ai.visibleProviders.length)
             columnSpacing: Theme.spaceSm
             rowSpacing: Theme.spaceSm
@@ -181,9 +194,11 @@ Item {
 
                     readonly property color providerColor: modelData.id === "codex" ? Theme.tertiary
                                                           : modelData.id === "claude" ? Theme.primary
+                                                          : modelData.id === "antigravity" ? Theme.secondary
                                                           : Theme.info
                     readonly property string providerIcon: modelData.id === "codex" ? "󱙺"
-                                                           : modelData.id === "claude" ? "󰚩" : "󰨞"
+                                                           : modelData.id === "claude" ? "󰚩"
+                                                           : modelData.id === "antigravity" ? "󰑣" : "󰨞"
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -264,6 +279,7 @@ Item {
                                         Text {
                                             Layout.fillWidth: true
                                             text: modelData.label.toUpperCase()
+                                            elide: Text.ElideRight
                                             font.family: Theme.fontFamily
                                             font.pixelSize: Theme.fontXs
                                             font.weight: Theme.weightHeavy
@@ -344,14 +360,14 @@ Item {
                                     ColumnLayout {
                                         Layout.fillWidth: true; spacing: 0
                                         Text {
-                                            text: card.modelData.id === "cursor"
+                                            text: card.modelData.id === "cursor" || card.modelData.activity.tokensAvailable === false
                                                   ? card.modelData.activity.todaySessions
                                                   : root.compact(card.modelData.activity.todayTokens)
                                             font.family: Theme.fontFamily; font.pixelSize: Theme.fontLg
                                             font.weight: Theme.weightHeavy; color: card.providerColor
                                         }
                                         Text {
-                                            text: card.modelData.id === "cursor" ? "TODAY SESSIONS" : "TOKENS TODAY"
+                                            text: card.modelData.id === "cursor" || card.modelData.activity.tokensAvailable === false ? "TODAY SESSIONS" : "TOKENS TODAY"
                                             font.family: Theme.fontFamily; font.pixelSize: Theme.fontXs
                                             font.weight: Theme.weightBold; color: Theme.foregroundDim
                                         }
@@ -404,6 +420,8 @@ Item {
                     }
                 }
             }
+        }
+
         }
 
         ColumnLayout {

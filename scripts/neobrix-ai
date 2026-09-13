@@ -434,15 +434,77 @@ def scan_cursor(record: dict[str, Any]) -> None:
     finish_sessions(record)
 
 
+def scan_antigravity(record: dict[str, Any]) -> None:
+    root = home() / ".gemini/antigravity-cli"
+    db = root / "conversation_summaries.db"
+    today = dt.datetime.now().date()
+    week_start = today - dt.timedelta(days=6)
+    record["activity"]["tokensAvailable"] = False
+    if db.is_file():
+        try:
+            conn = sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=1)
+            try:
+                rows = conn.execute("SELECT conversation_id, title, workspace_uris, last_modified_time "
+                                    "FROM conversation_summaries ORDER BY last_modified_time DESC")
+                for sid, title, workspaces, updated in rows:
+                    if not updated or str(updated).startswith("0001-"):
+                        continue
+                    try:
+                        paths = json.loads(workspaces)
+                        detail = " · ".join(str(p) for p in paths) if isinstance(paths, list) else ""
+                    except (ValueError, TypeError):
+                        detail = ""
+                    add_session(record, sid, title, detail, updated)
+                    day = dt.date.fromisoformat(local_day(updated))
+                    record["activity"]["todaySessions"] += int(day == today)
+                    record["activity"]["weekSessions"] += int(week_start <= day <= today)
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            pass
+    finish_sessions(record)
+    if not record["installed"]:
+        return
+    record["status"] = "Limits unavailable"
+    if os.environ.get("NEOBRIX_AI_OFFLINE") == "1":
+        return
+    try:
+        result = subprocess.run([record["launchCommand"], "--print", "/usage", "--output-format", "json"],
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                timeout=12, check=True)
+        payload = json.loads(result.stdout)
+        command = payload.get("command") or {}
+        if payload.get("status") != "SUCCESS" or command.get("name") != "usage":
+            return
+        limits = []
+        for group in (command.get("data") or {}).get("groups", []):
+            for bucket in group.get("buckets", []):
+                remaining = bucket.get("remaining_fraction")
+                if not isinstance(remaining, (int, float)) or not 0 <= remaining <= 1:
+                    continue
+                limits.append({"label": str(group.get("name") or "Models") + " · " + str(bucket.get("window") or "Quota"),
+                               "usedPercent": (1 - remaining) * 100,
+                               "resetsAt": str(bucket.get("reset_time") or "")})
+        record["limits"] = limits
+        record["authenticated"] = True
+        record["status"] = "Ready" if limits else "Limits unavailable"
+        # /usage exposes no account identity or plan. Gemini CLI OAuth files
+        # belong to a different app and must not be used as AGY identity.
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError):
+        pass
+
+
 def collect() -> dict[str, Any]:
     records = [
         base_record("codex", "Codex", "codex"),
         base_record("claude", "Claude Code", "claude"),
         base_record("cursor", "Cursor", "cursor"),
+        base_record("antigravity", "Antigravity", "agy"),
     ]
     scan_codex(records[0])
     scan_claude(records[1])
     scan_cursor(records[2])
+    scan_antigravity(records[3])
     return {"schemaVersion": SCHEMA, "updatedAt": now_iso(), "providers": records}
 
 
