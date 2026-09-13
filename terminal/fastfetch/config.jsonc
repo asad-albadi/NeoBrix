@@ -159,7 +159,7 @@
     "break",
     {
       "type": "custom",
-      "format": "\u001b[90m┌───────────────Age / Uptime / Update────────────────┐"
+      "format": "\u001b[90m┌──────────────────Age / Uptime──────────────────────┐"
     },
     {
       "type": "command",
@@ -171,12 +171,6 @@
       "type": "uptime",
       "key": "󱫐 Uptime",
       "keyColor": "blue"
-    },
-    {
-      "type": "command",
-      "key": " Update",
-      "keyColor": "blue",
-      "text": "n=$(checkupdates 2>/dev/null | wc -l); if [ \"$n\" -gt 0 ]; then echo \"$n packages\"; else echo \"up to date\"; fi"
     },
     {
       "type": "custom",
