@@ -113,16 +113,59 @@ Item {
             }
         }
 
+        RowLayout {
+            visible: root.selectedProvider === null
+            Layout.fillWidth: true
+            spacing: Theme.spaceSm
+
+            Text {
+                text: "SHOW"
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontXs
+                font.weight: Theme.weightHeavy
+                color: Theme.foregroundDim
+            }
+
+            Repeater {
+                model: ["codex", "claude", "cursor"]
+                delegate: BrixButton {
+                    required property string modelData
+                    text: modelData.toUpperCase()
+                    icon: Ai.isVisible(modelData) ? "󰄬" : "󰄱"
+                    fontSize: Theme.fontXs
+                    active: Ai.isVisible(modelData)
+                    activeAccent: modelData === "codex" ? Theme.tertiary
+                                  : modelData === "claude" ? Theme.primary : Theme.info
+                    accent: Theme.surface
+                    onClicked: Ai.setVisible(modelData, !Ai.isVisible(modelData))
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+
+        Text {
+            visible: root.selectedProvider === null && Ai.visibleProviders.length === 0
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            text: "No AI accounts shown. Enable a provider above."
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSm
+            color: Theme.foregroundDim
+        }
+
         GridLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            columns: 3
+            columns: Math.max(1, Ai.visibleProviders.length)
             columnSpacing: Theme.spaceSm
             rowSpacing: Theme.spaceSm
-            visible: root.selectedProvider === null
+            visible: root.selectedProvider === null && Ai.visibleProviders.length > 0
 
             Repeater {
-                model: Ai.providers
+                model: Ai.visibleProviders
 
                 delegate: BrixCard {
                     id: card

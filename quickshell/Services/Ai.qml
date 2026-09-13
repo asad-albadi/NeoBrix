@@ -13,6 +13,34 @@ Singleton {
     property string updatedAt: ""
     property string error: ""
     property bool refreshing: false
+    property var visibility: ({ codex: true, claude: true, cursor: true })
+    readonly property var visibleProviders: providers.filter(item => isVisible(item.id))
+
+    function isVisible(id) { return visibility[id] !== false; }
+
+    function setVisible(id, shown) {
+        if (!["codex", "claude", "cursor"].includes(id)) return;
+        const next = Object.assign({}, visibility);
+        next[id] = shown;
+        visibility = next;
+        preferences.setText(JSON.stringify(next) + "\n");
+    }
+
+    FileView {
+        id: preferences
+        path: Quickshell.statePath("ai-visibility.json")
+        preload: true
+        printErrors: false
+        onLoaded: {
+            try {
+                const saved = JSON.parse(text());
+                if (saved && typeof saved === "object")
+                    root.visibility = { codex: saved.codex !== false,
+                                        claude: saved.claude !== false,
+                                        cursor: saved.cursor !== false };
+            } catch (e) { /* First run or invalid preferences: show all. */ }
+        }
+    }
 
     function refresh() {
         if (!refreshing) refreshProc.running = true;
