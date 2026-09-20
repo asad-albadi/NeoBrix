@@ -207,6 +207,13 @@ elif a.cmd == "cycle":
         wid = ids[(index + (1 if a.value > 0 else -1)) % len(ids)]
         focus_workspace(wid)
 if a.cmd in ("show", "map"):
+    # Monitor hotplugging can leave the mode enabled while a window remains in
+    # the global range that belonged to another display.  `show` is also the
+    # cheap state probe used by the shell, so reconcile here whenever the mode
+    # is active; migrate_on_enable is a no-op for windows already in range.
+    if a.cmd == "show" and data.get("enabled"):
+        migrate_on_enable(data)
+        save(data)
     out = {"enabled": bool(data.get("enabled")), "spaces": int(data.get("spaces", 5)), "monitors": mapping(data)}
     for m in out["monitors"]: m["ids"] = [m["slot"] * out["spaces"] + i for i in range(1, out["spaces"] + 1)]
     print(json.dumps(out, separators=(",", ":")))

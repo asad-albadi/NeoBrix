@@ -1,6 +1,8 @@
 pragma Singleton
+import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 
 Singleton {
     id: root
@@ -22,6 +24,16 @@ Singleton {
             onStreamFinished: root.consume(text)
         }
         stderr: StdioCollector {}
+    }
+    // Monitor hotplugging does not necessarily restart the shell.  Reconcile
+    // exactly when Hyprland reports a monitor topology event, rather than
+    // polling the compositor while the shell is idle.
+    Connections {
+        target: Hyprland
+        function onRawEvent(event) {
+            if (event && event.name && event.name.indexOf("monitor") !== -1)
+                root.refresh()
+        }
     }
     Process {
         id: change
