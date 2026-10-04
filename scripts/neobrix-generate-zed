@@ -86,6 +86,14 @@ def theme(mode):
     err     = c("ERROR")
     info    = c("INFO")
     ink     = c("ON_ACCENT")
+    primary_ink = c("INK_PRIMARY")
+    secondary_ink = c("INK_SECONDARY")
+    tertiary_ink = c("INK_TERTIARY")
+    pink_ink = c("INK_PINK")
+    success_ink = c("INK_SUCCESS")
+    warning_ink = c("INK_WARNING")
+    error_ink = c("INK_ERROR")
+    info_ink = c("INK_INFO")
 
     # A translucent wash of a colour, for the "…background" variants Zed uses to
     # tint a whole row without drowning the text on it.
@@ -125,13 +133,13 @@ def theme(mode):
         "text.muted": dim,
         "text.placeholder": dim,
         "text.disabled": dim,
-        "text.accent": accent,
+        "text.accent": primary_ink,
         "icon": fg,
         "icon.muted": dim,
         "icon.placeholder": dim,
         "icon.disabled": dim,
-        "icon.accent": accent,
-        "link_text.hover": accent,
+        "icon.accent": primary_ink,
+        "link_text.hover": info_ink,
 
         "status_bar.background": alt,
         "title_bar.background": alt,
@@ -206,13 +214,15 @@ def theme(mode):
     }
 
     # The status families: each is a colour plus a wash for the row and a border.
-    for name, col in (("created", ok), ("modified", warn), ("deleted", err),
-                      ("renamed", info), ("conflict", warn), ("error", err),
-                      ("warning", warn), ("info", info), ("success", ok),
-                      ("hint", lav), ("predictive", dim), ("hidden", dim),
-                      ("ignored", dim), ("unreachable", dim)):
+    for name, col, fill in (("created", success_ink, ok), ("modified", warning_ink, warn),
+                            ("deleted", error_ink, err), ("renamed", info_ink, info),
+                            ("conflict", warning_ink, warn), ("error", error_ink, err),
+                            ("warning", warning_ink, warn), ("info", info_ink, info),
+                            ("success", success_ink, ok), ("hint", tertiary_ink, lav),
+                            ("predictive", dim, dim), ("hidden", dim, dim),
+                            ("ignored", dim, dim), ("unreachable", dim, dim)):
         style[name] = col
-        style[f"{name}.background"] = wash(col, "22")
+        style[f"{name}.background"] = wash(fill, "22")
         style[f"{name}.border"] = col
 
     # Collaborators' cursors and selections.
@@ -239,47 +249,47 @@ def theme(mode):
     style["syntax"] = {
         "comment":            s(dim, "italic"),
         "comment.doc":        s(dim, "italic"),
-        "string":             s(ok),
-        "string.escape":      s(pink),
-        "string.regex":       s(pink),
-        "string.special":     s(pink),
-        "string.special.symbol": s(pink),
-        "number":             s(lav),
-        "boolean":            s(lav, None, 700),
-        "constant":           s(lav),
-        "keyword":            s(accent, None, 700),
-        "operator":           s(pink),
+        "string":             s(secondary_ink),
+        "string.escape":      s(pink_ink),
+        "string.regex":       s(pink_ink),
+        "string.special":     s(pink_ink),
+        "string.special.symbol": s(pink_ink),
+        "number":             s(tertiary_ink),
+        "boolean":            s(tertiary_ink, None, 700),
+        "constant":           s(tertiary_ink),
+        "keyword":            s(primary_ink, None, 700),
+        "operator":           s(pink_ink),
         "punctuation":        s(dim),
         "punctuation.bracket": s(dim),
         "punctuation.delimiter": s(dim),
-        "punctuation.special": s(pink),
-        "punctuation.list_marker": s(accent),
-        "function":           s(info, None, 700),
-        "function.method":    s(info),
-        "function.definition": s(info, None, 700),
-        "type":               s(warn),
-        "type.builtin":       s(warn),
-        "constructor":        s(warn),
+        "punctuation.special": s(pink_ink),
+        "punctuation.list_marker": s(primary_ink),
+        "function":           s(info_ink, None, 700),
+        "function.method":    s(info_ink),
+        "function.definition": s(info_ink, None, 700),
+        "type":               s(warning_ink),
+        "type.builtin":       s(warning_ink),
+        "constructor":        s(warning_ink),
         "variable":           s(fg),
         "variable.member":    s(fg),
         "variable.parameter": s(fg),
-        "variable.special":   s(pink),
+        "variable.special":   s(pink_ink),
         "property":           s(fg),
-        "attribute":          s(lav),
-        "tag":                s(accent),
-        "label":              s(accent),
-        "namespace":          s(warn),
+        "attribute":          s(tertiary_ink),
+        "tag":                s(primary_ink),
+        "label":              s(primary_ink),
+        "namespace":          s(warning_ink),
         "primary":            s(fg),
         "predictive":         s(dim, "italic"),
-        "emphasis":           s(accent, "italic"),
-        "emphasis.strong":    s(accent, None, 700),
+        "emphasis":           s(primary_ink, "italic"),
+        "emphasis.strong":    s(primary_ink, None, 700),
         "title":              s(fg, None, 700),
-        "link_text":          s(info, "italic"),
-        "link_uri":           s(ok),
-        "hint":               s(lav),
+        "link_text":          s(info_ink, "italic"),
+        "link_uri":           s(secondary_ink),
+        "hint":               s(tertiary_ink),
         "embedded":           s(fg),
-        "enum":               s(warn),
-        "variant":            s(warn),
+        "enum":               s(warning_ink),
+        "variant":            s(warning_ink),
     }
 
     return {
@@ -306,6 +316,8 @@ vars() {
     local k
     for k in DESKTOP BG SURFACE_ALT BG_DEEP FG FG_DIM OUTLINE PRIMARY SECONDARY \
              TERTIARY PINK WARNING ERROR INFO ON_ACCENT \
+             INK_PRIMARY INK_SECONDARY INK_TERTIARY INK_PINK INK_SUCCESS \
+             INK_WARNING INK_ERROR INK_INFO \
              N_BLACK N_RED N_GREEN N_YELLOW N_BLUE N_MAGENTA N_CYAN N_WHITE \
              B_BLACK B_RED B_GREEN B_YELLOW B_BLUE B_MAGENTA B_CYAN B_WHITE; do
         printf '%s=%s\n' "$k" "${!k}"

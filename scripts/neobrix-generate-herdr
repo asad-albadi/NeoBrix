@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# Generates NeoBrix's Dawn/Dusk overrides for HerdR without replacing the
+# user's workspaces, keybindings, or other HerdR preferences.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+# shellcheck source=lib/palette.sh
+source "$HERE/lib/palette.sh"
+
+MODE="${1:-dawn}"
+[[ "$MODE" == "dawn" || "$MODE" == "dusk" ]] || {
+    echo "usage: neobrix-generate-herdr [dawn|dusk]" >&2
+    exit 2
+}
+
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+HERDR_DIR="$CFG/herdr"
+CONFIG="$HERDR_DIR/config.toml"
+
+# Do not create a HerdR configuration for people who do not use it.
+if ! command -v herdr >/dev/null 2>&1 && [[ ! -d "$HERDR_DIR" ]]; then
+    exit 0
+fi
+
+palette_vars() {
+    local key
+    for key in BG SURFACE_ALT BG_DEEP FG FG_DIM PRIMARY \
+               INK_PRIMARY INK_TERTIARY INK_SUCCESS INK_WARNING INK_ERROR INK_INFO; do
+        printf '%s=%s\n' "$key" "${!key}"
+    done
+}
+
+DAWN="$(neobrix_palette dawn; palette_vars)"
+DUSK="$(neobrix_palette dusk; palette_vars)"
+
+mkdir -p "$HERDR_DIR"
+touch "$CONFIG"
+
+NB_CONFIG="$CONFIG" NB_DAWN="$DAWN" NB_DUSK="$DUSK" python3 - <<'PY'
+import os
+import re
+from pathlib import Path
+
+
+def parse_palette(blob):
+    return dict(line.split("=", 1) for line in blob.splitlines() if "=" in line)
+
+
+def table_span(text, name):
+    match = re.search(rf"(?m)^\[{re.escape(name)}\][ \t]*(?:#.*)?$", text)
+    if not match:
+        return None
+    next_table = re.search(r"(?m)^\[", text[match.end():])
+    end = match.end() + (next_table.start() if next_table else len(text[match.end():]))
+    return match.start(), match.end(), end
+
+
+def set_table_key(text, table, key, value):
+    span = table_span(text, table)
+    if span is None:
+        text = text.rstrip() + f"\n\n[{table}]\n"
+        span = table_span(text, table)
+    _, body_start, end = span
+    body = text[body_start:end]
+    # Restrict indentation to spaces/tabs: `\s*` would consume the header's
+    # trailing newline and join `[theme]` to the first replacement key.
+    pattern = rf"(?m)^([ \t]*{re.escape(key)}[ \t]*=).*?$"
+    line = f"{key} = {value}" if key == "auto_switch" else f'{key} = "{value}"'
+    if re.search(pattern, body):
+        body = re.sub(pattern, line, body)
+    else:
+        body = body.rstrip() + "\n" + line + "\n"
+    return text[:body_start] + body + text[end:]
+
+
+def remove_table(text, table):
+    span = table_span(text, table)
+    if span is None:
+        return text
+    start, _, end = span
+    return (text[:start].rstrip() + "\n" + text[end:].lstrip("\n"))
+
+
+def theme_block(mode, palette):
+    # HerdR's base terminal theme provides layout and glyphs. These values only
+    # replace its colour roles: high-contrast inks for text/status, soft NeoBrix
+    # fills for panels and selections.
+    if mode == "light":
+        values = {
+            "sidebar_bg": palette["SURFACE_ALT"],
+            "active_row_bg": palette["BG_DEEP"],
+            "selection_bg": palette["PRIMARY"],
+            "panel_bg": palette["BG"],
+            "surface_dim": palette["FG_DIM"],
+            "text": palette["FG"],
+            "accent": palette["INK_PRIMARY"],
+            "mauve": palette["INK_TERTIARY"],
+            "green": palette["INK_SUCCESS"],
+            "yellow": palette["INK_WARNING"],
+            "red": palette["INK_ERROR"],
+            "peach": palette["INK_PRIMARY"],
+        }
+    else:
+        values = {
+            "sidebar_bg": palette["SURFACE_ALT"],
+            "active_row_bg": palette["BG_DEEP"],
+            "selection_bg": palette["PRIMARY"],
+            "panel_bg": palette["BG"],
+            "surface_dim": palette["FG_DIM"],
+            "text": palette["FG"],
+            "accent": palette["INK_PRIMARY"],
+            "mauve": palette["INK_TERTIARY"],
+            "green": palette["INK_SUCCESS"],
+            "yellow": palette["INK_WARNING"],
+            "red": palette["INK_ERROR"],
+            "peach": palette["INK_PRIMARY"],
+        }
+    lines = [f"[theme.custom.{mode}]"]
+    lines.extend(f'{key} = "#{value}"' for key, value in values.items())
+    return "\n".join(lines)
+
+
+path = Path(os.environ["NB_CONFIG"])
+text = path.read_text()
+for table in ("theme.custom.light", "theme.custom.dark"):
+    text = remove_table(text, table)
+
+for key, value in (("name", "terminal"), ("auto_switch", "true"),
+                   ("light_name", "terminal"), ("dark_name", "terminal")):
+    text = set_table_key(text, "theme", key, value)
+
+dawn = parse_palette(os.environ["NB_DAWN"])
+dusk = parse_palette(os.environ["NB_DUSK"])
+text = text.rstrip() + "\n\n" + theme_block("light", dawn) + "\n\n" + theme_block("dark", dusk) + "\n"
+path.write_text(text)
+PY
+
+# HerdR applies theme values after a config reload; a restart is not required.
+herdr server reload-config >/dev/null 2>&1 || true

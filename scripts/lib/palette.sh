@@ -24,7 +24,9 @@ neobrix_palette() {
         BG_ALT=f0e2d2       # (legacy alias used by the generated app themes)
         BG_DEEP=e3d3c1      # surfaceDeep: headers, inset wells
         FG=1e1815
-        FG_DIM=8a7a6c
+        # Muted copy remains a foreground in terminals and editors, so it must
+        # stay readable rather than behave like a decorative surface tint.
+        FG_DIM=6b5f54
         OUTLINE=171210      # the chunky border
         PRIMARY=f6a97e      # peach
         SECONDARY=afdca0    # pistachio
@@ -36,11 +38,16 @@ neobrix_palette() {
         INFO=9fc4e8
         ON_ACCENT=171210
 
-        # ANSI ramp for the terminals.
-        N_BLACK=171210; N_RED=d1584c; N_GREEN=5f9c4c; N_YELLOW=b9922c
-        N_BLUE=4a7fb5; N_MAGENTA=9b6fd6; N_CYAN=3f9d92; N_WHITE=e3d3c1
-        B_BLACK=8a7a6c; B_RED=e8776b; B_GREEN=8fce7c; B_YELLOW=ebc963
-        B_BLUE=9fc4e8; B_MAGENTA=c4aef2; B_CYAN=6fc7bb; B_WHITE=fcf6ee
+        # Text-safe inks for Dawn.  The soft peach/mint/lavender roles above
+        # remain surface fills; these colours meet 4.5:1 on #ecdfd1, the
+        # darkest editor background used by Dawn.
+        N_BLACK=171210; N_RED=9e3f39; N_GREEN=386e35; N_YELLOW=815b12
+        N_BLUE=32618d; N_MAGENTA=7040a4; N_CYAN=246c64; N_WHITE=5c5046
+        B_BLACK=6b5f54; B_RED=a9433d; B_GREEN=26713b; B_YELLOW=7d5510
+        B_BLUE=376793; B_MAGENTA=7d4aae; B_CYAN=216d67; B_WHITE=66594d
+        INK_PRIMARY=8d4b25; INK_SECONDARY=386e35; INK_TERTIARY=7040a4
+        INK_PINK=8d3e62; INK_SUCCESS=386e35; INK_WARNING=815b12
+        INK_ERROR=9e3f39; INK_INFO=32618d
 
         GTK_SCHEME=prefer-light; GTK_THEME=adw-gtk3; ICONS=Papirus-Light
         KDE_SCHEME=NeobrixDawn
@@ -68,6 +75,9 @@ neobrix_palette() {
         N_BLUE=93b8de; N_MAGENTA=b9a2ec; N_CYAN=6fc7bb; N_WHITE=c9b8a6
         B_BLACK=6b5b4d; B_RED=ee8b80; B_GREEN=a5da94; B_YELLOW=ecd07f
         B_BLUE=b3cfea; B_MAGENTA=cfbcf5; B_CYAN=93ddd2; B_WHITE=f6ede2
+        INK_PRIMARY=f0a377; INK_SECONDARY=9fd08f; INK_TERTIARY=b9a2ec
+        INK_PINK=ee9bb0; INK_SUCCESS=84c471; INK_WARNING=e0be58
+        INK_ERROR=e06d61; INK_INFO=93b8de
 
         GTK_SCHEME=prefer-dark; GTK_THEME=adw-gtk3-dark; ICONS=Papirus-Dark
         KDE_SCHEME=NeobrixDusk

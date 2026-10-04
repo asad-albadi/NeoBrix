@@ -41,6 +41,7 @@ emit_theme() {
     export mode out
     export DESKTOP BG SURFACE_ALT BG_DEEP FG FG_DIM OUTLINE
     export PRIMARY SECONDARY TERTIARY PINK SUCCESS WARNING ERROR INFO ON_ACCENT
+    export INK_PRIMARY INK_SECONDARY INK_TERTIARY INK_PINK INK_SUCCESS INK_WARNING INK_ERROR INK_INFO
     export N_BLACK N_RED N_GREEN N_YELLOW N_BLUE N_MAGENTA N_CYAN N_WHITE
     export B_BLACK B_RED B_GREEN B_YELLOW B_BLUE B_MAGENTA B_CYAN B_WHITE
 
@@ -63,6 +64,10 @@ dim       = c("FG_DIM")
 line      = c("OUTLINE")       # every border
 accent    = c("PRIMARY")
 onAccent  = c("ON_ACCENT")
+errorText = c("INK_ERROR") if not dark else c("ERROR")
+warningText = c("INK_WARNING") if not dark else c("WARNING")
+infoText = c("INK_INFO") if not dark else c("INFO")
+successText = c("INK_SUCCESS") if not dark else c("SUCCESS")
 
 colors = {
     # Borders are the point of the style, so they are set explicitly everywhere
@@ -71,7 +76,7 @@ colors = {
     "focusBorder": accent,
     "foreground": fg,
     "descriptionForeground": dim,
-    "errorForeground": c("ERROR"),
+    "errorForeground": errorText,
     "widget.border": line,
     "widget.shadow": c("OUTLINE", "55"),
     "sash.hoverBorder": accent,
@@ -93,13 +98,13 @@ colors = {
     "editorBracketMatch.background": c("SECONDARY", "44"),
     "editorBracketMatch.border": line,
 
-    "editorGutter.addedBackground": c("SUCCESS"),
-    "editorGutter.modifiedBackground": c("INFO"),
-    "editorGutter.deletedBackground": c("ERROR"),
+    "editorGutter.addedBackground": successText,
+    "editorGutter.modifiedBackground": infoText,
+    "editorGutter.deletedBackground": errorText,
 
-    "editorError.foreground": c("ERROR"),
-    "editorWarning.foreground": c("WARNING"),
-    "editorInfo.foreground": c("INFO"),
+    "editorError.foreground": errorText,
+    "editorWarning.foreground": warningText,
+    "editorInfo.foreground": infoText,
 
     "editorWidget.background": panel,
     "editorWidget.border": line,
@@ -141,8 +146,8 @@ colors = {
     "list.inactiveSelectionBackground": deep,
     "list.hoverBackground": deep,
     "list.focusOutline": line,
-    "list.errorForeground": c("ERROR"),
-    "list.warningForeground": c("WARNING"),
+    "list.errorForeground": errorText,
+    "list.warningForeground": warningText,
     "tree.indentGuidesStroke": dim,
 
     # The status bar is a deliberate accent slab, like a bar island.
@@ -220,10 +225,10 @@ colors = {
     "diffEditor.insertedTextBackground": c("SUCCESS", "33"),
     "diffEditor.removedTextBackground": c("ERROR", "33"),
 
-    "gitDecoration.modifiedResourceForeground": c("INFO"),
-    "gitDecoration.addedResourceForeground": c("SUCCESS"),
-    "gitDecoration.deletedResourceForeground": c("ERROR"),
-    "gitDecoration.untrackedResourceForeground": c("SECONDARY"),
+    "gitDecoration.modifiedResourceForeground": infoText,
+    "gitDecoration.addedResourceForeground": successText,
+    "gitDecoration.deletedResourceForeground": errorText,
+    "gitDecoration.untrackedResourceForeground": successText,
     "gitDecoration.ignoredResourceForeground": dim,
 
     "terminal.background": surface,

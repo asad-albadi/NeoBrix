@@ -9,7 +9,16 @@ Singleton {
     property bool enabled: false
     property int spaces: 5
     property var monitors: []
-    function refresh() { probe.running = true }
+    property bool refreshPending: false
+    function refresh() {
+        refreshPending = true
+        Qt.callLater(root.flushRefresh)
+    }
+    function flushRefresh() {
+        if (!refreshPending || probe.running || change.running) return
+        refreshPending = false
+        probe.running = true
+    }
     function ids(name) { for (const m of monitors) if (m.name === name) return m.ids; return [] }
     function setEnabled(value) { change.command = ["neobrix-workspaces", "enabled", value ? "1" : "0"]; change.running = true }
     function setSpaces(value) { change.command = ["neobrix-workspaces", "spaces", String(value)]; change.running = true }
@@ -20,6 +29,9 @@ Singleton {
         id: probe
         command: ["neobrix-workspaces", "show"]
         running: true
+        // Keep events received during this run and drain them after Process
+        // has finished updating its running state and collecting stdout.
+        onExited: Qt.callLater(root.flushRefresh)
         stdout: StdioCollector {
             onStreamFinished: root.consume(text)
         }
@@ -38,7 +50,7 @@ Singleton {
     Process {
         id: change
         running: false
-        onExited: root.refresh()
+        onExited: Qt.callLater(root.refresh)
         stderr: StdioCollector {}
     }
     Process {
