@@ -650,6 +650,13 @@ if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-darkreader" ]]; then
     "$(dirname "$(readlink -f "$0")")/neobrix-generate-darkreader" >/dev/null 2>&1 || true
 fi
 
+# Steam's Millennium theme follows the palette without restarting Steam.
+# This stages the theme even before Millennium is installed; activation is
+# selected once in Steam's Millennium settings.
+if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-steam" ]]; then
+    "$(dirname "$(readlink -f "$0")")/neobrix-generate-steam" "$MODE" >/dev/null 2>&1 || true
+fi
+
 # ── nudge what can reload in place ──────────────────────────────────────────
 # alacritty watches its config (live_config_reload); kitty reloads on SIGUSR1.
 pkill -SIGUSR1 -x kitty 2>/dev/null || true

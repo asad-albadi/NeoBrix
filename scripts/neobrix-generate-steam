@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Generate the NeoBrix Millennium theme. Does not install Millennium or restart Steam.
+set -euo pipefail
+HERE="$(dirname "$(readlink -f "$0")")"
+source "$HERE/lib/palette.sh"
+MODE="${1:-dawn}"
+[[ "$MODE" == dawn || "$MODE" == dusk ]] || {
+    echo 'usage: neobrix-generate-steam [dawn|dusk]' >&2
+    exit 2
+}
+
+STEAM_DIR="${NEOBRIX_STEAM_DIR:-}"
+if [[ -z "$STEAM_DIR" ]]; then
+    for candidate in "$HOME/.steam/steam" "$HOME/.steam/root" \
+        "${XDG_DATA_HOME:-$HOME/.local/share}/Steam"; do
+        if [[ -d "$candidate/steamui" ]]; then STEAM_DIR="$candidate"; break; fi
+    done
+fi
+[[ -n "$STEAM_DIR" && -d "$STEAM_DIR/steamui" ]] || exit 0
+
+neobrix_palette "$MODE"
+export NB_STEAM_DIR="$STEAM_DIR" NB_SOURCE_DIR="$HERE/../theming/steam" NB_MODE="$MODE"
+export BG SURFACE_ALT BG_DEEP FG FG_DIM OUTLINE PRIMARY SECONDARY TERTIARY
+export ON_ACCENT INK_PRIMARY INK_SUCCESS INK_ERROR INK_INFO
+python3 - <<'PY'
+import json
+import os
+import re
+import tempfile
+from pathlib import Path
+
+ui = Path(os.environ['NB_STEAM_DIR']) / 'steamui'
+source = Path(os.environ['NB_SOURCE_DIR'])
+theme = ui.parent / 'millennium/themes/neobrix'
+theme.mkdir(parents=True, exist_ok=True)
+
+roles = {'surface': 'BG', 'panel': 'SURFACE_ALT', 'deep': 'BG_DEEP',
+         'text': 'FG', 'muted': 'FG_DIM', 'outline': 'OUTLINE',
+         'primary': 'PRIMARY', 'secondary': 'SECONDARY', 'tertiary': 'TERTIARY',
+         'on-accent': 'ON_ACCENT', 'link': 'INK_INFO', 'success': 'INK_SUCCESS',
+         'error': 'INK_ERROR', 'accent-ink': 'INK_PRIMARY'}
+palette = {'--nb-' + role: '#' + os.environ[var] for role, var in roles.items()}
+css = ':root {\n' + ''.join(f'  {key}: {value};\n' for key, value in palette.items()) + '}\n'
+
+# Steam's production builds use hashed class names. Resolve only CSS-module
+# export objects with an identifying key; never match a generic Container
+# across unrelated modules. The readable selectors remain as a fallback.
+modules = {}
+anchors = {'desktop': ('TitleBar', 'SuperNavBar'),
+           'library': ('LibraryContextMenu', 'LeftListSizableContainer'),
+           'home': ('LibraryHome', 'LibraryHomeSection'),
+           'entry': ('GameListEntryContainer', 'GameListEntryName'),
+           'nav': ('SuperNav', 'SuperNavMenu')}
+for bundle in sorted(ui.glob('*.js')):
+    text = bundle.read_text(errors='replace')
+    for body in re.findall(r'\.exports=\{([^{}]+)\}', text):
+        fields = {}
+        for quoted, plain, value in re.findall(r'(?:"([\w-]+)"|([\w]+)):"([^"\\]+)"', body):
+            fields[quoted or plain] = value
+        for module, required in anchors.items():
+            if all(key in fields for key in required):
+                modules.setdefault(module, []).append(fields)
+
+def selector(match):
+    module, key = match.group(1).split('.')
+    namespaces = {'desktop': 'steamdesktop', 'library': 'library',
+                  'home': 'libraryhome', 'entry': 'gamelistentry', 'nav': 'supernav'}
+    fallback = f'[class*="{namespaces[module]}_{key}_"]'
+    values = sorted({fields.get(key, '') for fields in modules.get(module, [])})
+    selectors = ['.' + value for value in values
+                 if re.fullmatch(r'-?[A-Za-z_][\w-]*', value)]
+    return ':is(' + ', '.join(selectors + [fallback]) + ')' if selectors else fallback
+
+css += re.sub(r'@([\w]+\.[\w]+)@', selector, (source / 'client.css').read_text())
+
+def write(name, content):
+    destination = theme / name
+    if destination.exists() and destination.read_text() == content:
+        return
+    with tempfile.NamedTemporaryFile(mode='w', dir=theme, delete=False) as file:
+        file.write(content)
+        temporary = Path(file.name)
+    temporary.chmod(0o644)
+    temporary.replace(destination)
+
+write('skin.json', (source / 'skin.json').read_text())
+write('libraryroot.custom.css', css)
+write('friends.custom.css', css)
+write('libraryroot.custom.js', (source / 'palette-sync.js').read_text())
+write('friends.custom.js', (source / 'palette-sync.js').read_text())
+# Write the live snapshot last, after the stylesheets are ready.
+write('palette.json', json.dumps(palette, sort_keys=True) + '\n')
+print(f'Generated NeoBrix {os.environ["NB_MODE"]} Steam theme: {theme}')
+PY

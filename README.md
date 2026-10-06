@@ -41,6 +41,9 @@ curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bo
 Qt 5/6, KDE apps, Kitty, Fish, Fastfetch, btop, Zen Browser, Dark Reader,
 Cursor, VS Code and Zed.
 
+**Steam:** an optional [NeoBrix Millennium theme](theming/steam/README.md)
+follows the dawn/dusk palette. Millennium must be installed separately.
+
 Or read it first, which is the better habit with any `curl | bash`:
 
 ```bash

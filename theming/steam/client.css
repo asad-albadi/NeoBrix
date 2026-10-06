@@ -1,0 +1,100 @@
+/* NeoBrix: structure and color, preserving game artwork and Steam's layout. */
+body, .DialogContent, .DialogBody, .ModalPosition_Content,
+.friendsui-container, .friendlist, .chatWindow {
+    background: var(--nb-panel) !important;
+    color: var(--nb-text) !important;
+    font-family: "JetBrainsMono Nerd Font", sans-serif !important;
+}
+@desktop.TitleBar@, @desktop.RootMenuBar@, @desktop.SuperNavBar@ {
+    background: var(--nb-panel) !important;
+    color: var(--nb-text) !important;
+    border-bottom: 2px solid var(--nb-outline) !important;
+}
+@desktop.LocalContentContainer@, @library.Container@, @library.MainPanel@,
+@home.Container@, @home.LibraryHome@ {
+    background: var(--nb-surface) !important;
+    color: var(--nb-text) !important;
+}
+@library.LeftListSizableContainer@ {
+    background: var(--nb-panel) !important;
+    color: var(--nb-text) !important;
+    border-right: 2px solid var(--nb-outline) !important;
+}
+@library.TopGradient@ { background: none !important; }
+@home.LibraryHomeSection@ {
+    background: var(--nb-panel) !important;
+    border: 2px solid var(--nb-outline) !important;
+    border-radius: 13px !important;
+    box-shadow: 4px 4px 0 var(--nb-outline) !important;
+    margin: 12px !important;
+    padding: 12px !important;
+}
+@home.Header@, @home.Name@, .DialogHeader, .DialogLabel {
+    color: var(--nb-text) !important;
+    font-weight: 700 !important;
+}
+@entry.GameListEntryName@, @entry.GameListEntryLabels@ {
+    color: var(--nb-text) !important;
+}
+@entry.Container@:hover {
+    background: var(--nb-deep) !important;
+    border-radius: 7px !important;
+}
+@entry.Container@@entry.Selected@ {
+    background: var(--nb-primary) !important;
+    border-radius: 7px !important;
+    box-shadow: inset 0 0 0 2px var(--nb-outline) !important;
+}
+@entry.Container@@entry.Selected@ @entry.GameListEntryName@,
+@entry.Container@@entry.Selected@ @entry.GameListEntryLabels@ {
+    color: var(--nb-on-accent) !important;
+}
+@nav.MenuButton@ { color: var(--nb-text) !important; }
+@nav.MenuButton@@nav.Selected@ {
+    color: var(--nb-accent-ink) !important;
+    border-bottom: 3px solid var(--nb-primary) !important;
+}
+button.DialogButton {
+    background: var(--nb-primary) !important;
+    color: var(--nb-on-accent) !important;
+    border: 2px solid var(--nb-outline) !important;
+    border-radius: 7px !important;
+    box-shadow: 3px 3px 0 var(--nb-outline) !important;
+    font-weight: 700 !important;
+    text-shadow: none !important;
+    transition: transform 90ms, box-shadow 90ms !important;
+}
+button.DialogButton:hover { background: var(--nb-secondary) !important; }
+button.DialogButton:active {
+    transform: translate(3px, 3px);
+    box-shadow: none !important;
+}
+button.DialogButton:disabled { opacity: 0.5; }
+.DialogInput, .DialogTextInputBase, .DialogDropDown {
+    background: var(--nb-surface) !important;
+    color: var(--nb-text) !important;
+    border: 2px solid var(--nb-muted) !important;
+    border-radius: 7px !important;
+    box-shadow: none !important;
+}
+.DialogBodyText, .DialogDropDown_CurrentDisplay { color: var(--nb-text) !important; }
+.DialogInput::placeholder, .DialogTextInputBase::placeholder { color: var(--nb-muted) !important; }
+.contextMenu, .contextMenuContents, .PopupFullWindow {
+    background: var(--nb-surface) !important;
+    color: var(--nb-text) !important;
+    border: 2px solid var(--nb-outline) !important;
+    border-radius: 7px !important;
+}
+.contextMenuItem { color: var(--nb-text) !important; }
+.contextMenuItem:hover {
+    background: var(--nb-tertiary) !important;
+    color: var(--nb-on-accent) !important;
+}
+.DialogBody a { color: var(--nb-link) !important; }
+::-webkit-scrollbar { width: 10px; height: 10px; background: var(--nb-panel); }
+::-webkit-scrollbar-thumb {
+    background: var(--nb-muted) !important;
+    border: 2px solid var(--nb-panel);
+    border-radius: 7px;
+}
+:focus-visible { outline: 3px solid var(--nb-link) !important; outline-offset: 2px; }
