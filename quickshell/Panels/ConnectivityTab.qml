@@ -874,6 +874,28 @@ Item {
         // silently in the UI and the reason only reached the journal.
         property bool pairAttempted: false
         property bool pairFailed: false
+        // BlueZ can take longer than Quickshell's connect call timeout to finish
+        // an audio-device negotiation. Keep one request in flight long enough
+        // for BlueZ to report its real result, instead of inviting a duplicate
+        // click that races the original connection.
+        property bool connectPending: false
+
+        function requestConnection() {
+            if (!btRow.dev || btRow.dev.connected || btRow.connectPending) return;
+            btRow.connectPending = true;
+            connectGraceTimer.restart();
+            btRow.dev.connect();
+        }
+
+        Timer {
+            id: connectGraceTimer
+            interval: 45000
+            repeat: false
+            onTriggered: {
+                if (!btRow.dev || !btRow.dev.connected)
+                    btRow.connectPending = false;
+            }
+        }
 
         Connections {
             target: btRow.dev
@@ -890,6 +912,12 @@ Item {
                 if (btRow.isPaired) {
                     btRow.pairFailed = false;
                     btRow.pairAttempted = false;
+                }
+            }
+            function onConnectedChanged() {
+                if (btRow.dev && btRow.dev.connected) {
+                    btRow.connectPending = false;
+                    connectGraceTimer.stop();
                 }
             }
         }
@@ -949,6 +977,8 @@ Item {
                                 return "pairing failed — check it is in pairing mode, or Forget "
                                      + "it and rescan; a PIN or number-match device needs "
                                      + "bluetoothctl once";
+                            if (btRow.connectPending)
+                                return "connecting…";
                             const parts = [BluetoothDeviceState.toString(btRow.dev.state).toLowerCase()];
                             // battery is 0..1, like signalStrength: BlueZ
                             // reported 99 for a headset while this property read
@@ -1010,15 +1040,14 @@ Item {
                 }
                 BrixButton {
                     visible: btRow.dev && !btRow.dev.pairing && btRow.isPaired
-                    text: btRow.dev && btRow.dev.connected ? "Disconnect" : "Connect"
+                    text: btRow.connectPending ? "Connecting…"
+                          : btRow.dev && btRow.dev.connected ? "Disconnect" : "Connect"
                     fontSize: 9
                     vPadding: 4
                     behind: btRow.rowColor
                     accent: btRow.dev && btRow.dev.connected ? Theme.surface : Theme.surfaceAlt
-                    onClicked: {
-                        if (btRow.dev.connected) btRow.dev.disconnect();
-                        else btRow.dev.connect();
-                    }
+                    enabled: btRow.dev && !btRow.connectPending
+                    onClicked: btRow.dev.connected ? btRow.dev.disconnect() : btRow.requestConnection()
                 }
 
                 Text {
