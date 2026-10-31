@@ -198,7 +198,11 @@ except Exception:
     data = {}
 if not isinstance(data, dict):
     data = {}
-data["theme"] = "NeoBrix"
+# `theme` is Obsidian's base light/dark scheme, not the custom theme name.
+# Remove only the invalid value written by older NeoBrix generators.
+if data.get("theme") == "NeoBrix":
+    del data["theme"]
+data["cssTheme"] = "NeoBrix"
 tmp = path.with_suffix(".tmp")
 tmp.write_text(json.dumps(data, indent=2) + "\n")
 os.replace(tmp, path)
