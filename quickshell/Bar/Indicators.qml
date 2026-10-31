@@ -1,4 +1,4 @@
-// Status glyph row: audio, microphone, bluetooth, network, battery.
+// Status row: keyboard layout, audio, microphone, bluetooth, network, battery.
 //
 // Each entry is present only when the corresponding hardware/service exists, so
 // on a machine without them the row collapses and shows no dead icons. That is
@@ -28,6 +28,17 @@ Item {
         id: row
         anchors.centerIn: parent
         spacing: Theme.spaceSm
+
+        // ── keyboard layout ────────────────────────────────────────────────
+        Glyph {
+            visible: Keyboard.available
+            glyph: Keyboard.label
+            glyphSize: Theme.fontSm
+            glyphWeight: Theme.weightBold
+            implicitWidth: Theme.fontSm * 2
+            tooltip: Keyboard.layoutName + " · keyboard layouts"
+            popover: "keyboard"
+        }
 
         // ── audio ───────────────────────────────────────────────────────────
         Glyph {
@@ -144,6 +155,8 @@ Item {
     component Glyph: Item {
         id: glyphRoot
         property string glyph: ""
+        property int glyphSize: Theme.fontLg
+        property int glyphWeight: Font.Normal
         property color color: Theme.foreground
         property string tooltip: ""
         // Panel name of this indicator's popover, "" for one without.
@@ -179,7 +192,8 @@ Item {
             anchors.centerIn: parent
             text: glyphRoot.glyph
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontLg
+            font.pixelSize: glyphRoot.glyphSize
+            font.weight: glyphRoot.glyphWeight
             color: glyphRoot.popoverOpen ? Theme.primary : glyphRoot.color
             opacity: glyphMouse.containsMouse ? 0.65 : 1
             Behavior on opacity { NumberAnimation { duration: Theme.durFast } }

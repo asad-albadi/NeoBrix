@@ -35,6 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bo
 - Two live palettes — `dawn` and `dusk` — with generated wallpapers and themes
 - Hyprland workflow with scratchpad, window/workspace controls, lock, idle and
   suspend integration
+- Live keyboard-layout indicator in the top-right bar; click it to select a layout
 - Styled `pacman` output and a NeoBrix package-update flow
 
 **Themed applications:** Quickshell, Hyprland, hyprlock, ReGreet, GTK 3/4,

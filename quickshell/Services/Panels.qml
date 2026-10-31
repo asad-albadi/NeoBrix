@@ -19,7 +19,7 @@ Singleton {
     id: root
 
     // "" | launcher | control | calendar | session | clipboard | notifications
-    //    | audio | mic | bluetooth | network | power   (bar popovers)
+    //    | keyboard | audio | mic | bluetooth | network | power   (bar popovers)
     property string current: ""
 
     // Screen x of the bar item the open popover hangs under. One value is
