@@ -6,7 +6,8 @@
 return function(ctx)
     hl.config({
         input = {
-            kb_layout    = "us",
+            kb_layout    = "us,ara",
+            kb_options   = "grp:alt_shift_toggle",
             follow_mouse = 1,
             mouse_refocus = true,
 

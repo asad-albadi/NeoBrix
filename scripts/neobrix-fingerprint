@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# NeoBrix fingerprint authentication for its ReGreet login screen and hyprlock.
+# It deliberately does not change system-auth, sudo, or third-party greeters.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+TESTING="${NEOBRIX_TESTING:-0}"
+if [[ $TESTING == 1 && -n ${NEOBRIX_TEST_ROOT:-} ]]; then
+    ROOT="$NEOBRIX_TEST_ROOT"
+else
+    ROOT=""
+fi
+PAM_DIR="$ROOT/etc/pam.d"
+GREETD_CONFIG="$ROOT/etc/greetd/config.toml"
+PAM_MODULE="$ROOT/usr/lib/security/pam_fprintd.so"
+MARK_BEGIN="# BEGIN NEOBRIX FINGERPRINT"
+MARK_END="# END NEOBRIX FINGERPRINT"
+BLOCK="$MARK_BEGIN
+# One scan for ten seconds, then the existing password stack takes over.
+auth sufficient pam_fprintd.so max-tries=1 timeout=10
+$MARK_END"
+
+die() { printf 'neobrix fingerprint: %s\n' "$*" >&2; exit 1; }
+info() { printf '%s\n' "$*"; }
+
+install_file() {
+    local source=$1 target=$2
+    if [[ $TESTING == 1 ]]; then
+        install -Dm644 "$source" "$target"
+    else
+        sudo install -Dm644 "$source" "$target"
+    fi
+}
+
+backup_file() {
+    local file=$1 backup="${1}.pre-neobrix-fingerprint"
+    [[ -e $backup ]] && return
+    if [[ $TESTING == 1 ]]; then
+        cp -p "$file" "$backup"
+    else
+        sudo cp -p "$file" "$backup"
+    fi
+}
+
+is_neobrix_regreet() {
+    [[ -r $GREETD_CONFIG ]] || return 1
+    grep -qi 'neobrix' "$GREETD_CONFIG" && grep -Eq '(^|[^[:alnum:]_-])regreet([^[:alnum:]_-]|$)' "$GREETD_CONFIG"
+}
+
+has_enrolled_print() {
+    command -v fprintd-list >/dev/null || return 1
+    local output
+    output="$(fprintd-list "${USER:?}" 2>&1)" || return 1
+    grep -Eq 'found [1-9][0-9]* devices' <<<"$output" && grep -q '#[0-9]' <<<"$output"
+}
+
+service_state() {
+    local file="$PAM_DIR/$1"
+    [[ -r $file ]] || { printf 'missing'; return; }
+    local begin end
+    begin=$(grep -Fxc "$MARK_BEGIN" "$file" || true)
+    end=$(grep -Fxc "$MARK_END" "$file" || true)
+    if [[ $begin == 0 && $end == 0 ]]; then printf 'disabled'
+    elif [[ $begin == 1 && $end == 1 ]]; then printf 'enabled'
+    else printf 'invalid'
+    fi
+}
+
+write_enabled() {
+    local service=$1 file="$PAM_DIR/$1" state tmp
+    state="$(service_state "$service")"
+    [[ $state != invalid ]] || die "$file has an incomplete NeoBrix fingerprint block; refuse to guess"
+    [[ $state == enabled ]] && return
+    backup_file "$file"
+    tmp="$(mktemp)"
+    if ! awk -v block="$BLOCK" -v service="$service" '
+            !added && service == "hyprlock" && $1 == "auth" && $2 == "include" && $3 == "login" { print block; added=1 }
+            !added && service == "greetd" && $1 == "auth" && $2 == "include" && $3 == "system-local-login" { print block; added=1 }
+            { print }
+            END { if (!added) exit 3 }
+        ' "$file" > "$tmp"; then
+        rm -f "$tmp"
+        die "$file has no NeoBrix password fallback anchor"
+    fi
+    install_file "$tmp" "$file"
+    rm -f "$tmp"
+}
+
+write_disabled() {
+    local service=$1 file="$PAM_DIR/$1" state tmp
+    state="$(service_state "$service")"
+    [[ $state != invalid ]] || die "$file has an incomplete NeoBrix fingerprint block; refuse to guess"
+    [[ $state == disabled ]] && return
+    tmp="$(mktemp)"
+    awk -v begin="$MARK_BEGIN" -v end="$MARK_END" '
+        $0 == begin { skip=1; next }
+        $0 == end { skip=0; next }
+        !skip { print }
+    ' "$file" > "$tmp"
+    install_file "$tmp" "$file"
+    rm -f "$tmp"
+}
+
+validate_service() {
+    local service=$1 file="$PAM_DIR/$1" state
+    state="$(service_state "$service")"
+    [[ $state != missing ]] || die "required PAM service file is missing: $file"
+    [[ $state != invalid ]] || die "$file has an incomplete NeoBrix fingerprint block; refuse to guess"
+    [[ $state == enabled ]] && return
+    case "$service" in
+        hyprlock) grep -Eq '^auth[[:space:]]+include[[:space:]]+login([[:space:]]|$)' "$file" ;;
+        greetd)   grep -Eq '^auth[[:space:]]+include[[:space:]]+system-local-login([[:space:]]|$)' "$file" ;;
+    esac || die "$file has no NeoBrix password fallback anchor"
+}
+
+require_ready() {
+    is_neobrix_regreet || die "the active greetd configuration is not NeoBrix ReGreet; nothing changed"
+    [[ -e $PAM_MODULE ]] || die "pam_fprintd.so is not installed; install fprintd first"
+    has_enrolled_print || die "no enrolled fingerprint was found for $USER"
+    # Validate both stacks before touching either one. A partial authentication
+    # policy update is harder to reason about and harder to roll back safely.
+    validate_service hyprlock
+    validate_service greetd
+}
+
+status() {
+    printf 'NeoBrix ReGreet  %s\n' "$(is_neobrix_regreet && echo active || echo inactive)"
+    printf 'fingerprint      %s\n' "$(has_enrolled_print && echo enrolled || echo unavailable)"
+    printf 'hyprlock         %s\n' "$(service_state hyprlock)"
+    printf 'greetd           %s\n' "$(service_state greetd)"
+}
+
+case "${1:-status}" in
+    enable)
+        require_ready
+        write_enabled hyprlock
+        write_enabled greetd
+        info "NeoBrix fingerprint authentication enabled; password remains the fallback."
+        ;;
+    disable)
+        write_disabled hyprlock
+        write_disabled greetd
+        info "NeoBrix fingerprint authentication disabled."
+        ;;
+    status) status ;;
+    *) die "usage: neobrix fingerprint [enable|disable|status]" ;;
+esac

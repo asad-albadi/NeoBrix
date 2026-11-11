@@ -2,6 +2,7 @@
 *.log
 *.qslog
 .cache/
+.worktrees/
 local.conf
 *.local
 # never commit secrets

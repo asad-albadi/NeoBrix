@@ -35,6 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bo
 - Two live palettes — `dawn` and `dusk` — with generated wallpapers and themes
 - Hyprland workflow with scratchpad, window/workspace controls, lock, idle and
   suspend integration
+- Live keyboard-layout indicator in the top-right bar; click it to select a layout
 - Styled `pacman` output and a NeoBrix package-update flow
 
 **Themed applications:** Quickshell, Hyprland, hyprlock, ReGreet, GTK 3/4,
@@ -111,6 +112,15 @@ not start means a machine you cannot log into:
 
 Answer no and it tells you the one-liner for later. See
 [Login screen](#login-screen).
+
+*Fingerprint authentication* — optional and scoped to NeoBrix's ReGreet login
+screen and hyprlock only. After installing `fprintd` and enrolling a finger,
+enable it with `neobrix fingerprint enable`. It verifies the reader, enrolled
+print, and active NeoBrix ReGreet configuration before it changes either PAM
+file; `neobrix fingerprint disable` removes only its own reversible blocks.
+Fingerprint is tried once for up to ten seconds, then the normal password flow
+remains available. It never changes sudo, shared PAM policy, or another
+display manager.
 
 To undo everything:
 

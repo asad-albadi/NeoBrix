@@ -33,6 +33,7 @@ ShellRoot {
         Panels.current,
         Notifs.count,
         Audio.hasSink,
+        Keyboard.available,
         Net.connected,
         Bt.available,
         Media.available,
@@ -61,6 +62,7 @@ ShellRoot {
     ClipboardPanel {}
 
     // Bar popovers — one per indicator, each anchored under its own glyph.
+    KeyboardPopover {}
     AudioPopover {}
     MicPopover {}
     PowerPopover {}

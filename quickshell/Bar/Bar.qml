@@ -33,6 +33,10 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Top
 
     readonly property var hyprMonitor: Hyprland.monitorFor(bar.screen)
+    // Both side islands constrain a centred row. Extra indicators or tray
+    // items must not leave the media controls underneath the right island.
+    readonly property real centerAvailableWidth: Math.max(0, bar.width - 2 * (
+        Math.max(leftIsland.width, rightIslands.implicitWidth) + Theme.barMargin + Theme.barGap))
 
     // ── left island ─────────────────────────────────────────────────────────
     BrixCard {
@@ -104,7 +108,8 @@ PanelWindow {
         }
 
         MediaPill {
-            visible: Media.available
+            visible: Media.available && implicitWidth + Theme.barGap
+                     + workspaces.implicitWidth + Theme.spaceMd * 2 <= bar.centerAvailableWidth
             Layout.preferredHeight: Theme.barIslandHeight
             Layout.preferredWidth: visible ? implicitWidth : 0
             maxTitleWidth: Math.max(80, bar.width * 0.14)
@@ -113,6 +118,7 @@ PanelWindow {
 
     // ── right islands ───────────────────────────────────────────────────────
     RowLayout {
+        id: rightIslands
         anchors.right: parent.right
         anchors.rightMargin: Theme.barMargin
         anchors.top: parent.top

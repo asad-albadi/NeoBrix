@@ -1102,7 +1102,7 @@ test_obsidian_theme() {
     local dusk; dusk="$(bash -c 'source '"$REPO"'/scripts/lib/palette.sh; neobrix_palette dusk; printf %s "$PRIMARY"')"
     assert_has "the theme follows the requested NeoBrix palette" "--interactive-accent: #$dusk" "$(cat "$theme")"
     assert_eq "the generated theme is selected" "NeoBrix" \
-              "$(jq -r '.theme' "$vault/.obsidian/appearance.json")"
+              "$(jq -r '.cssTheme' "$vault/.obsidian/appearance.json")"
     assert_eq "unrelated vault settings survive" "true" \
               "$(jq -r '.nativeMenus' "$vault/.obsidian/appearance.json")"
     assert_eq "the theme manifest is named NeoBrix" "NeoBrix" \
