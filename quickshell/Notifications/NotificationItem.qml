@@ -79,30 +79,24 @@ Item {
         shadowOffset: root.popup ? Theme.shadowMd : Theme.shadowSm
         border.width: root.urgency === "critical" ? Theme.borderThick : Theme.border
 
-        // Urgency stripe down the left edge.
+        // Urgency sits inside the content inset, clear of the card's outline
+        // and rounded corners. Share its geometry with the text gutter below.
         Rectangle {
+            id: urgencyRail
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            anchors.margins: Theme.border
-            width: 6
+            anchors.margins: Theme.spaceMd
+            width: Theme.borderThick
             color: root.accent
-            radius: Theme.radiusMd
-            // Square off the right side so the stripe reads as a hard band.
-            Rectangle {
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: parent.width / 2
-                color: parent.color
-            }
+            radius: width / 2
         }
 
         ColumnLayout {
             id: layout
             anchors.fill: parent
             anchors.margins: Theme.spaceMd
-            anchors.leftMargin: Theme.spaceMd + 8
+            anchors.leftMargin: Theme.spaceMd + urgencyRail.width + Theme.spaceSm
             spacing: Theme.spaceXs
 
             // ── header ──────────────────────────────────────────────────────
