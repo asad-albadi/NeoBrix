@@ -1,0 +1,63 @@
+/* Store and Community surfaces embedded in the Steam client. Keep promotional
+   illustrations and game screenshots intact while theming navigation/controls. */
+:root { color-scheme: var(--nb-color-scheme) !important; }
+body {
+    background-color: var(--nb-panel) !important;
+    color: var(--nb-text) !important;
+    font-family: "JetBrainsMono Nerd Font", sans-serif !important;
+}
+#global_header, #responsive_store_nav_ctn, #store_header, #store_nav_area,
+.store_nav, .responsive_page_menu_ctn, .supernav_content {
+    background: var(--nb-panel) !important;
+    color: var(--nb-text) !important;
+    border-bottom: 2px solid var(--nb-outline) !important;
+}
+#responsive_store_nav_ctn :is(div, a, span, nav),
+#store_nav_area :is(div, a, span) {
+    background-color: transparent !important;
+    background-image: none !important;
+    color: var(--nb-text) !important;
+}
+input[type="text"], input[type="search"], textarea, select,
+.searchbox, .search_suggest, .popup_menu, .popup_block_new {
+    background: var(--nb-surface) !important;
+    color: var(--nb-text) !important;
+    border: 2px solid var(--nb-muted) !important;
+    border-radius: 7px !important;
+}
+.game_area_purchase_game, .game_area_purchase_game_wrapper,
+.home_marketing_message, .home_specials_ctn, .home_featured_ctn,
+.sale_capsule, .dailydeal_ctn, .recommendation_highlight,
+.profile_header_bg, .profile_content, .commentthread_comment,
+.apphub_Card, .apphub_sectionTab, .apphub_HeaderTop,
+.workshopItem, .discussions_header, .discussionSearchText {
+    background-color: var(--nb-surface) !important;
+    color: var(--nb-text) !important;
+    border: 2px solid var(--nb-outline) !important;
+    border-radius: 13px !important;
+    box-shadow: 4px 4px 0 var(--nb-shadow) !important;
+}
+.game_area_purchase_game h1, .game_area_purchase_game .game_purchase_price,
+.apphub_AppName, .profile_header .persona_name, .commentthread_comment_text {
+    color: var(--nb-text) !important;
+}
+.btnv6_blue_hoverfade, .btnv6_green_white_innerfade,
+.btnv6_white, .btnv6_blue_blue_innerfade, .btn_addtocart,
+.btn_addtocart_content, .searchbox button, #responsive_store_nav_ctn button {
+    background: var(--nb-primary) !important;
+    color: var(--nb-on-accent) !important;
+    border: 2px solid var(--nb-outline) !important;
+    border-radius: 7px !important;
+    box-shadow: 3px 3px 0 var(--nb-shadow) !important;
+    font-weight: 700 !important;
+}
+.btnv6_blue_hoverfade > span, .btnv6_green_white_innerfade > span,
+.btnv6_white > span, .btn_addtocart_content {
+    background: transparent !important;
+    color: inherit !important;
+}
+.discount_pct { background: var(--nb-secondary) !important; color: var(--nb-on-accent) !important; }
+.discount_block, .discount_prices { background: var(--nb-deep) !important; color: var(--nb-text) !important; }
+.discount_final_price { color: var(--nb-text) !important; }
+::-webkit-scrollbar { width: 10px; background: var(--nb-panel); }
+::-webkit-scrollbar-thumb { background: var(--nb-muted); border: 2px solid var(--nb-panel); border-radius: 7px; }

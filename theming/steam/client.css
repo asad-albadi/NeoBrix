@@ -1,4 +1,114 @@
 /* NeoBrix: structure and color, preserving game artwork and Steam's layout. */
+:root {
+    /* Adwaita supplies client-wide coverage. These are NeoBrix's design tokens,
+       including both schemes so Steam never falls back to its blue-gray UI. */
+    --adw-color-scheme: var(--nb-color-scheme) !important;
+    color-scheme: var(--nb-color-scheme) !important;
+    --adw-window-bg: var(--nb-panel) !important;
+    --adw-window-fg: var(--nb-text) !important;
+    --adw-view-bg: var(--nb-surface) !important;
+    --adw-view-fg: var(--nb-text) !important;
+    --adw-headerbar-bg: var(--nb-panel) !important;
+    --adw-headerbar-fg: var(--nb-text) !important;
+    --adw-headerbar-backdrop: var(--nb-panel) !important;
+    --adw-headerbar-shade: var(--nb-outline) !important;
+    --adw-headerbar-darker-shade: var(--nb-outline) !important;
+    --adw-sidebar-bg: var(--nb-panel) !important;
+    --adw-sidebar-fg: var(--nb-text) !important;
+    --adw-sidebar-backdrop: var(--nb-panel) !important;
+    --adw-sidebar-shade: var(--nb-outline) !important;
+    --adw-secondary-sidebar-bg: var(--nb-deep) !important;
+    --adw-secondary-sidebar-fg: var(--nb-text) !important;
+    --adw-secondary-sidebar-backdrop: var(--nb-deep) !important;
+    --adw-secondary-sidebar-shade: var(--nb-outline) !important;
+    --adw-card-bg: var(--nb-surface) !important;
+    --adw-card-fg: var(--nb-text) !important;
+    --adw-card-shade: var(--nb-outline) !important;
+    --adw-dialog-bg: var(--nb-surface) !important;
+    --adw-dialog-fg: var(--nb-text) !important;
+    --adw-popover-bg: var(--nb-surface) !important;
+    --adw-popover-fg: var(--nb-text) !important;
+    --adw-popover-shade: var(--nb-outline) !important;
+    --adw-thumbnail-bg: var(--nb-deep) !important;
+    --adw-thumbnail-fg: var(--nb-text) !important;
+    --adw-shade: var(--nb-outline) !important;
+    --adw-accent-bg-light: var(--nb-primary) !important;
+    --adw-accent-bg-dark: var(--nb-primary) !important;
+    --adw-accent-bg: var(--nb-primary) !important;
+    --adw-accent-fg: var(--nb-on-accent) !important;
+    --adw-accent: var(--nb-accent-ink) !important;
+    --adw-success-bg: var(--nb-success-bg) !important;
+    --adw-success: var(--nb-success) !important;
+    --adw-success-fg: var(--nb-on-accent) !important;
+    --adw-warning-bg: var(--nb-warning-bg) !important;
+    --adw-warning: var(--nb-accent-ink) !important;
+    --adw-warning-fg: var(--nb-on-accent) !important;
+    --adw-error-bg: var(--nb-error-bg) !important;
+    --adw-error: var(--nb-error) !important;
+    --adw-error-fg: var(--nb-on-accent) !important;
+    --adw-destructive-bg: var(--nb-error-bg) !important;
+    --adw-destructive: var(--nb-error) !important;
+    --adw-destructive-fg: var(--nb-on-accent) !important;
+    --adw-user-online: var(--nb-link) !important;
+    --adw-user-ingame: var(--nb-success) !important;
+    --adw-user-offline: var(--nb-muted) !important;
+    --adw-banner: var(--nb-tertiary) !important;
+    --adw-text-font-primary: "JetBrainsMono Nerd Font" !important;
+    --adw-text-font-monospace-primary: "JetBrainsMono Nerd Font Mono" !important;
+    --adw-button-radius: 7px !important;
+    --adw-card-radius: 13px !important;
+    --adw-card-shadow: inset 0 0 0 2px var(--nb-outline), 4px 4px 0 var(--nb-shadow) !important;
+    --adw-card-raised-shadow: inset 0 0 0 2px var(--nb-outline), 6px 6px 0 var(--nb-shadow) !important;
+    --adw-button-hc-outline: inset 0 0 0 2px var(--nb-outline) !important;
+    --adw-button-pill-radius: 7px !important;
+    --adw-windowcontrols-button-width: 30px !important;
+    --adw-windowcontrols-button-height: 30px !important;
+    --adw-windowcontrols-button-gap: 6px !important;
+    --adw-windowcontrols-buttons-margin-outer: 8px !important;
+    --adw-windowcontrols-buttons-margin-inner: 6px !important;
+    --adw-cursor-pointer: pointer !important;
+}
+
+body.DesktopUI .title-bar-actions.window-controls .title-area-icon,
+html.client_chat_frame .title-bar-actions.window-controls .title-area-icon {
+    border-radius: 7px !important;
+    border: 2px solid var(--nb-outline) !important;
+    background: var(--nb-surface) !important;
+    color: var(--nb-text) !important;
+    box-shadow: 2px 2px 0 var(--nb-shadow) !important;
+    justify-content: center !important;
+}
+body.DesktopUI .title-bar-actions.window-controls .title-area-icon:hover,
+html.client_chat_frame .title-bar-actions.window-controls .title-area-icon:hover {
+    background: var(--nb-primary) !important;
+    color: var(--nb-on-accent) !important;
+}
+
+/* Target the real rendered panels, rather than just their outer wrappers. */
+body.DesktopUI div._1ijTaXJJA5YWl_fW2IxcaT,
+body.DesktopUI div._3x1HklzyDs4TEjACrRO2tB {
+    background: var(--nb-panel) !important;
+    color: var(--nb-text) !important;
+}
+body.DesktopUI div._3xRRJfD2xy95i9NhJxLTp0 div._17uEBe5Ri8TMsnfELvs8-N {
+    background: var(--nb-surface) !important;
+    border-bottom: 2px solid var(--nb-outline) !important;
+}
+body.DesktopUI div._3xRRJfD2xy95i9NhJxLTp0 div.V7RuDNUxhxoBRaiGWbk3B {
+    background: var(--nb-panel) !important;
+    border: 2px solid var(--nb-outline) !important;
+    border-radius: 13px !important;
+    margin: 12px !important;
+    padding: 12px !important;
+    box-shadow: 4px 4px 0 var(--nb-shadow) !important;
+    contain: layout style !important;
+}
+body.DesktopUI div._3xRRJfD2xy95i9NhJxLTp0 div.WYgDg9NyCcMIVuMyZ_NBC,
+body.DesktopUI div._3xRRJfD2xy95i9NhJxLTp0 div._3YO5BpDmZERh_G8kaWbaSJ.Panel {
+    border: 2px solid var(--nb-outline) !important;
+    box-shadow: 4px 4px 0 var(--nb-shadow) !important;
+    background-image: none !important;
+}
 body, .DialogContent, .DialogBody, .ModalPosition_Content,
 .friendsui-container, .friendlist, .chatWindow {
     background: var(--nb-panel) !important;
@@ -98,3 +208,39 @@ button.DialogButton:disabled { opacity: 0.5; }
     border-radius: 7px;
 }
 :focus-visible { outline: 3px solid var(--nb-link) !important; outline-offset: 2px; }
+
+/* Keep the game's artwork behind its title and actions instead of placing
+ * Adwaita's separate, opaque header above the banner. */
+body.DesktopUI div._2iE-78WxX2Pj4GHbq7YJiA {
+    --adw-library-details-header-height: 300px;
+    --adw-library-details-hero-image-height: 300px;
+    --adw-window-fg: #fff7ef;
+    --adw-view-fg: #fff7ef;
+}
+body.DesktopUI div._2iE-78WxX2Pj4GHbq7YJiA div._2gZXhRmKUk68pA28-5ZmGQ {
+    margin-top: 0 !important;
+    position: relative !important;
+}
+body.DesktopUI div._2iE-78WxX2Pj4GHbq7YJiA div._2gZXhRmKUk68pA28-5ZmGQ::after {
+    background: linear-gradient(90deg, rgba(16,13,11,.86), rgba(16,13,11,.40)),
+                linear-gradient(0deg, rgba(16,13,11,.65), transparent 65%) !important;
+}
+body.DesktopUI div._2iE-78WxX2Pj4GHbq7YJiA div._2gZXhRmKUk68pA28-5ZmGQ div.Jbe--NUNw7sxbxGsMSjVa {
+    background: transparent !important;
+}
+body.DesktopUI div._2iE-78WxX2Pj4GHbq7YJiA div._1_cYNJSvS6IXs9vLTEYjy5 div._1U7LKpx70kEsz3jJwAFOi- {
+    margin-top: calc(-1 * var(--adw-library-details-hero-image-height)) !important;
+    margin-bottom: 0 !important;
+    position: relative !important;
+    z-index: 2 !important;
+    color: #fff7ef !important;
+}
+body.DesktopUI div._2iE-78WxX2Pj4GHbq7YJiA div._1_cYNJSvS6IXs9vLTEYjy5 div._25oBZpa3dUcMw8QAsa2u67 {
+    margin-top: calc(-1 * var(--adw-library-details-hero-image-height)) !important;
+    margin-bottom: var(--adw-library-details-hero-image-height) !important;
+    position: relative !important;
+    z-index: 2 !important;
+}
+body.DesktopUI div._2iE-78WxX2Pj4GHbq7YJiA div._1_cYNJSvS6IXs9vLTEYjy5 div._1U7LKpx70kEsz3jJwAFOi-:has(div.z8GYwNt_nbBZrf7OVjs-s)::before {
+    background: color-mix(in srgb, var(--nb-tertiary) 25%, var(--nb-deep)) !important;
+}

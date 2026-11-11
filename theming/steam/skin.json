@@ -2,6 +2,8 @@
   "name": "NeoBrix",
   "author": "NeoBrix",
   "description": "Neo-brutalist Steam chrome following NeoBrix's dawn and dusk palettes.",
-  "version": "1.0.0",
-  "UseDefaultPatches": true
+  "version": "1.1.0",
+  "UseDefaultPatches": true,
+  "webkitCSS": "webkit.css",
+  "webkitJS": "webkit.js"
 }

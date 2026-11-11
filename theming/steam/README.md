@@ -2,7 +2,13 @@
 
 The desktop Steam client theme targets [Millennium 3.5+](https://github.com/SteamClientHomebrew/Millennium).
 It styles the main window, library, dialogs, menus, and shared Friends controls.
-Game artwork, Store/Community web pages, and Big Picture retain their own styling.
+Game artwork is preserved, including banners behind the game title and actions.
+Store/Community pages receive shared colors and selected control styles; coverage
+there is partial. Big Picture retains its own styling.
+
+The desktop foundation comes from MIT-licensed
+[Adwaita for Steam](https://github.com/tkashkin/Adwaita-for-Steam), with NeoBrix
+colors, hard shadows, borders, and layout overrides. See `vendor/README.md` for provenance.
 
 ## Enable
 

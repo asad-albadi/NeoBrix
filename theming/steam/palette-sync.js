@@ -14,7 +14,9 @@ if (!window[key]) {
             const snapshot = JSON.stringify(palette);
             if (snapshot === previous) return;
             for (const [name, value] of Object.entries(palette)) {
-                if (/^--nb-[a-z-]+$/.test(name) && /^#[0-9a-f]{6}$/i.test(value))
+                const color = /^--nb-[a-z-]+$/.test(name) && /^#[0-9a-f]{6}$/i.test(value);
+                const scheme = name === "--nb-color-scheme" && ["light", "dark"].includes(value);
+                if (color || scheme)
                     document.documentElement.style.setProperty(name, value);
             }
             previous = snapshot;

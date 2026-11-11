@@ -21,7 +21,7 @@ fi
 neobrix_palette "$MODE"
 export NB_STEAM_DIR="$STEAM_DIR" NB_SOURCE_DIR="$HERE/../theming/steam" NB_MODE="$MODE"
 export BG SURFACE_ALT BG_DEEP FG FG_DIM OUTLINE PRIMARY SECONDARY TERTIARY
-export ON_ACCENT INK_PRIMARY INK_SUCCESS INK_ERROR INK_INFO
+export ON_ACCENT INK_PRIMARY INK_SUCCESS INK_ERROR INK_INFO DESKTOP SUCCESS WARNING ERROR
 python3 - <<'PY'
 import json
 import os
@@ -38,9 +38,13 @@ roles = {'surface': 'BG', 'panel': 'SURFACE_ALT', 'deep': 'BG_DEEP',
          'text': 'FG', 'muted': 'FG_DIM', 'outline': 'OUTLINE',
          'primary': 'PRIMARY', 'secondary': 'SECONDARY', 'tertiary': 'TERTIARY',
          'on-accent': 'ON_ACCENT', 'link': 'INK_INFO', 'success': 'INK_SUCCESS',
-         'error': 'INK_ERROR', 'accent-ink': 'INK_PRIMARY'}
+         'error': 'INK_ERROR', 'accent-ink': 'INK_PRIMARY', 'desktop': 'DESKTOP',
+         'success-bg': 'SUCCESS', 'warning-bg': 'WARNING', 'error-bg': 'ERROR'}
 palette = {'--nb-' + role: '#' + os.environ[var] for role, var in roles.items()}
-css = ':root {\n' + ''.join(f'  {key}: {value};\n' for key, value in palette.items()) + '}\n'
+palette['--nb-color-scheme'] = 'dark' if os.environ['NB_MODE'] == 'dusk' else 'light'
+palette['--nb-shadow'] = '#000000' if os.environ['NB_MODE'] == 'dusk' else palette['--nb-outline']
+palette_css = ':root {\n' + ''.join(f'  {key}: {value};\n' for key, value in palette.items()) + '}\n'
+css = (source / 'vendor/adwaita.css').read_text() + '\n' + palette_css
 
 # Steam's production builds use hashed class names. Resolve only CSS-module
 # export objects with an identifying key; never match a generic Container
@@ -84,10 +88,13 @@ def write(name, content):
     temporary.replace(destination)
 
 write('skin.json', (source / 'skin.json').read_text())
+write('LICENSE.adwaita', (source / 'vendor/LICENSE.adwaita').read_text())
 write('libraryroot.custom.css', css)
 write('friends.custom.css', css)
 write('libraryroot.custom.js', (source / 'palette-sync.js').read_text())
 write('friends.custom.js', (source / 'palette-sync.js').read_text())
+write('webkit.css', palette_css + (source / 'web.css').read_text())
+write('webkit.js', (source / 'palette-sync.js').read_text())
 # Write the live snapshot last, after the stylesheets are ready.
 write('palette.json', json.dumps(palette, sort_keys=True) + '\n')
 print(f'Generated NeoBrix {os.environ["NB_MODE"]} Steam theme: {theme}')

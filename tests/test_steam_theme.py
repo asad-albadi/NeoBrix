@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import re
 import subprocess
 import tempfile
 import unittest
@@ -54,6 +55,10 @@ class SteamThemeTest(unittest.TestCase):
                 metadata = json.loads((theme / "skin.json").read_text())
                 self.assertTrue(metadata["UseDefaultPatches"])
                 self.assertTrue((theme / "libraryroot.custom.js").exists())
+                self.assertEqual(metadata["webkitCSS"], "webkit.css")
+                self.assertEqual(metadata["webkitJS"], "webkit.js")
+                self.assertTrue((theme / "webkit.css").exists())
+                self.assertTrue((theme / "webkit.js").exists())
         self.assertEqual((theme / "user-notes.txt").read_text(), "keep me")
 
     def test_missing_steam_is_skipped_without_creating_profile(self):
@@ -91,6 +96,65 @@ class SteamThemeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((theme / "skin.json").exists())
 
+    @unittest.skipUnless(shutil.which("chromium"), "Chromium is needed for CSS rendering")
+    def test_library_surfaces_use_neobrix_colors_and_hard_shadows(self):
+        theme = self.install_fixture()
+        for mode, panel, surface in [
+            ("dusk", "rgb(25, 19, 16)", "rgb(46, 36, 28)"),
+            ("dawn", "rgb(241, 230, 217)", "rgb(252, 246, 238)")]:
+            with self.subTest(mode=mode):
+                result = self.run_generator(mode)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                css = (theme / "libraryroot.custom.css").read_text()
+                # Representative Steam DOM, including the actual sidebar,
+                # news, and shelf classes missed by the first theme.
+                html = '''<!doctype html><html><head><style>'''+css+'''</style></head>
+<body class="DesktopUI"><div class="_3xRRJfD2xy95i9NhJxLTp0">
+<div id="sidebar" class="_1ijTaXJJA5YWl_fW2IxcaT"></div>
+<div id="news" class="_17uEBe5Ri8TMsnfELvs8-N"></div>
+<div id="shelf" class="V7RuDNUxhxoBRaiGWbk3B">
+<div id="card" class="WYgDg9NyCcMIVuMyZ_NBC"></div></div>
+</div><div class="_2iE-78WxX2Pj4GHbq7YJiA">
+<div id="hero" class="_2gZXhRmKUk68pA28-5ZmGQ"></div>
+<div class="_1_cYNJSvS6IXs9vLTEYjy5"><div id="actions" class="_1U7LKpx70kEsz3jJwAFOi-"></div></div>
+</div><div class="title-bar-actions window-controls">
+<div id="minimize" class="title-area-icon minimizeButton"><div></div></div>
+<div id="maximize" class="title-area-icon maximizeButton"><div></div></div>
+<div id="close" class="title-area-icon closeButton"><div></div></div>
+</div><pre id="result"></pre><script>
+const style = id => getComputedStyle(document.getElementById(id));
+document.getElementById('result').textContent = JSON.stringify({
+ sidebar: style('sidebar').backgroundColor, news: style('news').backgroundColor,
+ shelf: style('shelf').backgroundColor, shadow: style('card').boxShadow,
+ border: style('card').borderTopWidth,
+ heroTop: document.getElementById('hero').getBoundingClientRect().top,
+ actionsTop: document.getElementById('actions').getBoundingClientRect().top,
+ overlay: getComputedStyle(document.getElementById('hero'),'::after').backgroundImage,
+ controls: ['minimize','maximize','close'].map(id=>({
+   visible:style(id).visibility, right:style(id).right,
+   mask:getComputedStyle(document.getElementById(id),'::before').webkitMaskImage
+ }))
+});</script></body></html>'''
+                preview = self.home / "preview.html"
+                preview.write_text(html)
+                browser = subprocess.run(
+                    ["chromium", "--headless", "--no-sandbox", "--disable-gpu",
+                     "--dump-dom", preview.as_uri()], capture_output=True, text=True, timeout=30)
+                match = re.search(r'<pre id="result">(.*?)</pre>', browser.stdout)
+                self.assertIsNotNone(match, browser.stderr[-1000:])
+                styles = json.loads(match.group(1))
+                self.assertEqual(styles["sidebar"], panel)
+                self.assertEqual(styles["news"], surface)
+                self.assertEqual(styles["shelf"], panel)
+                self.assertIn("4px 4px 0px", styles["shadow"])
+                self.assertEqual(styles["border"], "2px")
+                self.assertEqual(styles["heroTop"], styles["actionsTop"])
+                self.assertIn("linear-gradient", styles["overlay"])
+                self.assertEqual(len({control["right"] for control in styles["controls"]}), 3)
+                for control in styles["controls"]:
+                    self.assertEqual(control["visible"], "visible")
+                    self.assertNotEqual(control["mask"], "none")
+
     @unittest.skipUnless(shutil.which("node"), "Node is needed to exercise the sync module")
     def test_live_palette_switch_and_invalid_colors(self):
         module = self.home / "palette-sync.mjs"
@@ -107,7 +171,7 @@ globalThis.window = windowEvents;
 globalThis.document = documentEvents;
 document.hidden = false;
 document.documentElement = {style: {setProperty: (key, value) => colors.set(key, value)}};
-let palette = {'--nb-surface': '#fcf6ee', '--nb-text': '#1e1815'};
+let palette = {'--nb-surface': '#fcf6ee', '--nb-text': '#1e1815', '--nb-color-scheme': 'light'};
 globalThis.fetch = async (url, options) => {
     assert.equal(url.pathname.endsWith('/palette.json'), true);
     assert.equal(options.cache, 'no-store');
@@ -119,11 +183,13 @@ globalThis.clearInterval = () => {};
 await import(pathToFileURL(process.argv[1]));
 await new Promise(resolve => setImmediate(resolve));
 assert.equal(colors.get('--nb-surface'), '#fcf6ee');
+assert.equal(colors.get('--nb-color-scheme'), 'light');
 palette = {'--nb-surface': '#2e241c', '--nb-text': '#f6ede2',
-           '--nb-primary': 'url(https://invalid)', 'background': '#ffffff'};
+           '--nb-color-scheme': 'dark', '--nb-primary': 'url(https://invalid)', 'background': '#ffffff'};
 await tick();
 assert.equal(colors.get('--nb-surface'), '#2e241c');
 assert.equal(colors.get('--nb-text'), '#f6ede2');
+assert.equal(colors.get('--nb-color-scheme'), 'dark');
 assert.equal(colors.has('--nb-primary'), false);
 assert.equal(colors.has('background'), false);
 document.hidden = true;
