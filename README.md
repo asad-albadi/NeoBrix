@@ -217,6 +217,8 @@ the public captures are intentionally obscured.
 | **Session menu** | **Session menu** |
 | ![Zen Browser in dawn](docs/screenshots/zen-dawn.png) | ![Zen Browser in dusk](docs/screenshots/zen-dusk.png) |
 | **Zen Browser on the NeoBrix repository** | **Zen Browser on the NeoBrix repository** |
+| ![Steam library in dawn](docs/screenshots/steam-dawn.png) | ![Steam library in dusk](docs/screenshots/steam-dusk.png) |
+| **Steam library** | **Steam library** |
 | ![Cursor in dawn](docs/screenshots/cursor-dawn.png) | ![Cursor in dusk](docs/screenshots/cursor-dusk.png) |
 | **Cursor** | **Cursor** |
 | ![Zed in dawn](docs/screenshots/zed-dawn.png) | ![Zed in dusk](docs/screenshots/zed-dusk.png) |
