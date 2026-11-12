@@ -29,8 +29,10 @@ set -euo pipefail
 HERE="$(dirname "$(readlink -f "$0")")"
 # shellcheck source=lib/power.sh
 source "$HERE/lib/power.sh"
+# shellcheck source=lib/runtime.sh
+source "$HERE/lib/runtime.sh"
 
-STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/neobrix"
+STATE_DIR="$(neobrix_runtime_dir)/neobrix"
 PROFILE_STATE="$STATE_DIR/power-profile-on-mains"
 
 have() { command -v "$1" >/dev/null 2>&1; }

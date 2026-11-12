@@ -95,6 +95,7 @@ set_dpms_confirmed() {
 HERE="$(dirname "$(readlink -f "$0")")"
 # shellcheck source=lib/power.sh
 source "$HERE/lib/power.sh"
+source "$HERE/lib/runtime.sh"
 
 # ── keep awake ───────────────────────────────────────────────────────────────
 #
@@ -107,12 +108,13 @@ source "$HERE/lib/power.sh"
 # the idle chain and an explicit suspend; the lid switch is deliberately left
 # alone, because "keep the screen awake" should not also mean "stay running with
 # the laptop shut in a bag".
-INHIBIT_PID="${XDG_RUNTIME_DIR:-/tmp}/neobrix-inhibit.pid"
+INHIBIT_PID=""
 
 inhibit_alive() {
     [[ -r $INHIBIT_PID ]] || return 1
-    local pid; pid="$(cat "$INHIBIT_PID" 2>/dev/null)"
-    [[ -n $pid ]] && kill -0 "$pid" 2>/dev/null
+    local pid stamp extra
+    read -r pid stamp extra < "$INHIBIT_PID" || return 1
+    [[ -z $extra ]] && neobrix_process_matches "$pid" "$stamp" systemd-inhibit
 }
 
 inhibit_on() {
@@ -120,9 +122,10 @@ inhibit_on() {
     command -v systemd-inhibit >/dev/null 2>&1 || { printf 'neobrix-idle: systemd-inhibit not found\n' >&2; return 1; }
     # $$ inside the subshell is the process that then execs, so the pid stays
     # valid for the inhibitor itself rather than pointing at a shell that exited.
-    setsid bash -c 'echo $$ > "$1"; exec systemd-inhibit \
+    setsid bash -c 'source "$2"; stamp=$(neobrix_process_stamp $$) || exit 1
+        printf "%s %s\n" "$$" "$stamp" > "$1"; exec systemd-inhibit \
         --what=idle:sleep --who=Neobrix --why="Keep awake" --mode=block \
-        sleep infinity' _ "$INHIBIT_PID" </dev/null >/dev/null 2>&1 &
+        sleep infinity' _ "$INHIBIT_PID" "$HERE/lib/runtime.sh" {INHIBIT_LOCK}>&- </dev/null >/dev/null 2>&1 &
     disown 2>/dev/null || true
     sleep 0.3
     inhibit_alive && echo "staying awake" || { printf 'neobrix-idle: could not hold the lock\n' >&2; return 1; }
@@ -130,9 +133,18 @@ inhibit_on() {
 
 inhibit_off() {
     if ! inhibit_alive; then rm -f "$INHIBIT_PID"; echo "not held"; return 0; fi
-    local pid; pid="$(cat "$INHIBIT_PID")"
+    local pid stamp
+    read -r pid stamp < "$INHIBIT_PID"
     # The group, because the inhibitor has a `sleep` of its own to take with it.
     kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    local waited=0
+    while neobrix_process_matches "$pid" "$stamp" systemd-inhibit && (( waited < 60 )); do
+        sleep 0.05; waited=$((waited + 1))
+    done
+    if neobrix_process_matches "$pid" "$stamp" systemd-inhibit; then
+        printf 'neobrix-idle: inhibitor is still running; its state was kept\n' >&2
+        return 1
+    fi
     rm -f "$INHIBIT_PID"
     echo "idle timers back on"
 }
@@ -176,6 +188,10 @@ case ${1:-} in
         fi
         ;;
     inhibit)
+        RUNTIME="$(neobrix_runtime_dir)" || exit 1
+        INHIBIT_PID="$RUNTIME/neobrix-inhibit.pid"
+        exec {INHIBIT_LOCK}> "$RUNTIME/neobrix-inhibit.lock"
+        flock -x "$INHIBIT_LOCK"
         case ${2:-status} in
             on|start)   inhibit_on ;;
             off|stop)   inhibit_off ;;
@@ -185,7 +201,7 @@ case ${1:-} in
                 # otherwise have the shell showing "awake" forever.
                 if inhibit_alive; then echo on; else rm -f "$INHIBIT_PID"; echo off; exit 1; fi
                 ;;
-            *) die "inhibit takes on, off, toggle or status" ;;
+            *) printf 'neobrix-idle: inhibit takes on, off, toggle or status\n' >&2; exit 2 ;;
         esac
         ;;
 

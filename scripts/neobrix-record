@@ -18,11 +18,16 @@
 
 set -euo pipefail
 
+HERE="$(dirname "$(readlink -f "$0")")"
+source "$HERE/lib/runtime.sh"
+RUNTIME="$(neobrix_runtime_dir)" || exit 1
 DIR="${NEOBRIX_RECORD_DIR:-$(xdg-user-dir VIDEOS 2>/dev/null || echo "$HOME/Videos")/Recordings}"
 FPS="${NEOBRIX_RECORD_FPS:-30}"
-PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/neobrix-record.pid"
+PIDFILE="$RUNTIME/neobrix-record.pid"
 OUTFILE="$PIDFILE.out"
 REC=gpu-screen-recorder
+exec {RECORD_LOCK}> "$RUNTIME/neobrix-record.lock"
+flock -x "$RECORD_LOCK"
 
 notify() { notify-send -a "Recording" "$1" "${2:-}" 2>/dev/null || true; }
 fail() {
@@ -35,10 +40,10 @@ fail() {
 # behind, and a stale pid can even belong to an unrelated process by then.
 running_pid() {
     [ -r "$PIDFILE" ] || return 1
-    local p
-    p="$(cat "$PIDFILE" 2>/dev/null)" || return 1
-    [ -n "$p" ] || return 1
-    kill -0 "$p" 2>/dev/null || return 1
+    local p stamp extra
+    read -r p stamp extra < "$PIDFILE" || return 1
+    [[ -z $extra ]] || return 1
+    neobrix_process_matches "$p" "$stamp" "$REC" || return 1
     printf '%s\n' "$p"
 }
 
@@ -62,16 +67,18 @@ start() {
     # -cursor yes: a recording of a desktop with no pointer in it is hard to
     # follow, since half of what happens is where the pointer went.
     "$REC" -w "$mon" -f "$FPS" -k h264 -cursor yes -q very_high -o "$out" \
-        >/dev/null 2>&1 &
+        {RECORD_LOCK}>&- >/dev/null 2>&1 &
     local pid=$!
-    printf '%s\n' "$pid" > "$PIDFILE"
+    local stamp
+    stamp="$(neobrix_process_stamp "$pid")" || fail "the recorder exited immediately"
+    printf '%s %s\n' "$pid" "$stamp" > "$PIDFILE"
     printf '%s\n' "$out" > "$OUTFILE"
 
     # Give it a moment and check it is still there: a recorder that cannot open
     # the output or the monitor exits at once, and reporting "started" then would
     # be a lie the user only discovers when they look for the file.
     sleep 0.8
-    if ! kill -0 "$pid" 2>/dev/null; then
+    if ! running_pid >/dev/null; then
         rm -f "$PIDFILE" "$OUTFILE"
         fail "the recorder exited immediately"
     fi
@@ -79,19 +86,23 @@ start() {
 }
 
 stop() {
-    local pid out
+    local pid out stamp
     if ! pid="$(running_pid)"; then
         rm -f "$PIDFILE" "$OUTFILE"
         notify "Nothing to stop"
         return 0
     fi
+    read -r pid stamp < "$PIDFILE"
     # SIGINT, not SIGTERM: the recorder writes the container's index on
     # interrupt. Killed outright it leaves a file no player will open.
     kill -INT "$pid" 2>/dev/null || true
     local waited=0
-    while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 60 ]; do
+    while neobrix_process_matches "$pid" "$stamp" "$REC" && [ "$waited" -lt 60 ]; do
         sleep 0.1; waited=$((waited + 1))
     done
+    if neobrix_process_matches "$pid" "$stamp" "$REC"; then
+        fail "the recorder is still running; its state was kept so you can stop it again"
+    fi
     out="$(cat "$OUTFILE" 2>/dev/null || true)"
     rm -f "$PIDFILE" "$OUTFILE"
     if [ -n "$out" ] && [ -s "$out" ]; then
