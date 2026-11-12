@@ -339,47 +339,40 @@ EOF
     # user's, and it is JSON-with-comments, so a naive rewrite would lose theirs.
     s="${SETTINGS[i]}"
     mkdir -p "$(dirname "$s")"
-    MODE="$MODE" SETTINGS_FILE="$s" python3 - <<'PY'
-import json, os, pathlib, re
+    MODE="$MODE" SETTINGS_FILE="$s" PYTHONPATH="$HERE/lib" python3 -B - <<'PY'
+import os, pathlib
+from jsonc import loads, set_property
 
 path = pathlib.Path(os.environ["SETTINGS_FILE"])
 mode = os.environ["MODE"]
+raw = path.read_text() if path.exists() and path.stat().st_size else "{}\n"
+try:
+    data = loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("settings must be an object")
+except ValueError as error:
+    print(f"  could not parse {path}; left unchanged: {error}")
+    raise SystemExit(0)
 
-data = {}
-if path.exists() and path.stat().st_size:
-    raw = path.read_text()
-    # VS Code allows // comments and trailing commas in settings.json.
-    stripped = re.sub(r'^\s*//.*$', '', raw, flags=re.M)
-    stripped = re.sub(r',(\s*[}\]])', r'\1', stripped)
-    try:
-        data = json.loads(stripped) or {}
-    except json.JSONDecodeError:
-        # Never destroy a file we cannot parse.
-        backup = path.with_suffix(".json.neobrix-bak")
-        backup.write_text(raw)
-        print(f"  could not parse existing settings; backed up to {backup}")
-        data = {}
+raw = set_property(raw, ("workbench.colorTheme",), f"Neobrix {mode.capitalize()}")
+def default(key, value):
+    global raw
+    if key not in data:
+        raw = set_property(raw, (key,), value)
 
-data["workbench.colorTheme"] = f"Neobrix {mode.capitalize()}"
-data.setdefault("editor.fontFamily", "'JetBrainsMono Nerd Font Mono', monospace")
-data.setdefault("terminal.integrated.fontFamily", "'JetBrainsMono Nerd Font Mono'")
-# Keep the editor terminal aligned with the desktop terminal. Cursor inherits
-# profiles from VS Code, but only switches to Fish when it is named as the Linux
-# default profile; defining it explicitly also works on installs where discovery
-# is disabled or delayed.
+default("editor.fontFamily", "'JetBrainsMono Nerd Font Mono', monospace")
+default("terminal.integrated.fontFamily", "'JetBrainsMono Nerd Font Mono'")
+# Define Fish while preserving every other terminal profile.
 profiles = data.get("terminal.integrated.profiles.linux")
-if not isinstance(profiles, dict):
-    profiles = {}
-    data["terminal.integrated.profiles.linux"] = profiles
-profiles.setdefault("fish", {"path": "/usr/bin/fish"})
-data["terminal.integrated.defaultProfile.linux"] = "fish"
-data.setdefault("editor.fontSize", 13)
-data.setdefault("editor.fontLigatures", False)
-# The theme leans on borders; without this the editor hides most of them.
-data.setdefault("workbench.editor.showTabs", "multiple")
-data.setdefault("window.titleBarStyle", "custom")
-
-path.write_text(json.dumps(data, indent=2) + "\n")
+if not isinstance(profiles, dict) or "fish" not in profiles:
+    raw = set_property(raw, ("terminal.integrated.profiles.linux", "fish"),
+                       {"path": "/usr/bin/fish"})
+raw = set_property(raw, ("terminal.integrated.defaultProfile.linux",), "fish")
+default("editor.fontSize", 13)
+default("editor.fontLigatures", False)
+default("workbench.editor.showTabs", "multiple")
+default("window.titleBarStyle", "custom")
+path.write_text(raw)
 print(f"  {path} -> Neobrix {mode.capitalize()}")
 PY
 done

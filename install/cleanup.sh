@@ -80,7 +80,10 @@ PKG_CANDIDATES=(
 backup_dir_made=0
 ensure_backup() {
     (( backup_dir_made )) && return 0
-    mkdir -p "$BACKUP"
+    # Parent config directories may supply the privacy of otherwise-readable
+    # files. Keep the entire snapshot owner-only before writing or copying any.
+    mkdir -p -m 700 "$BACKUP"
+    chmod 700 "$BACKUP"
     cat > "$BACKUP/README" <<EOF
 Made by neobrix install/cleanup.sh on $STAMP.
 

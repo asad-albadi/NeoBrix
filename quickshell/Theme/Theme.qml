@@ -32,7 +32,20 @@ Singleton {
     // The shell themes itself from the palettes below; `neobrix-theme` applies the
     // same palette to the terminals, GTK, Qt and KDE. Without this the toggle only
     // recoloured the shell and every application stayed in the previous mode.
-    onModeChanged: applyToApplications()
+    property bool applicationThemeReady: false
+    onModeChanged: {
+        if (applicationThemeReady) applyToApplications();
+    }
+
+    // Read the saved mode before applying anything, including the initial Dawn.
+    // Waiting for an async onLoaded would either skip Dawn or briefly apply it
+    // before a saved Dusk; a blocking read here produces one correct startup.
+    Component.onCompleted: {
+        const saved = modeFile.text().trim();
+        if (saved === "dawn" || saved === "dusk") root.mode = saved;
+        applicationThemeReady = true;
+        applyToApplications();
+    }
 
     function applyToApplications() {
         Quickshell.execDetached(["neobrix-theme", mode]);
@@ -41,12 +54,7 @@ Singleton {
     FileView {
         id: modeFile
         path: Quickshell.statePath("theme-mode")
-        preload: true
-        onLoaded: {
-            const t = text().trim();
-            if (t === "dawn" || t === "dusk")
-                root.mode = t;
-        }
+        blockLoading: true
         // A missing state file on first run is expected, not an error.
         printErrors: false
     }

@@ -140,13 +140,14 @@ EOF
     # user.js — once set it overrides the portal permanently. The only way to clear
     # it is to delete the line from prefs.js, and that is only safe while Zen is
     # closed, because Zen rewrites the whole file on shutdown.
-    if [[ ! -e "$P/lock" && -f "$P/prefs.js" ]]; then
+    # Firefox's active lock is a dangling host:+pid symlink; -e alone misses it.
+    if [[ ! -e "$P/lock" && ! -L "$P/lock" && -f "$P/prefs.js" ]]; then
         if grep -q 'ui.systemUsesDarkTheme' "$P/prefs.js"; then
             cp -a "$P/prefs.js" "$P/prefs.js.neobrix-bak"
             sed -i '/user_pref("ui\.systemUsesDarkTheme"/d' "$P/prefs.js"
             printf '  cleared the pinned ui.systemUsesDarkTheme (backup: prefs.js.neobrix-bak)\n'
         fi
-    elif [[ -e "$P/lock" ]] && grep -q 'ui.systemUsesDarkTheme' "$P/prefs.js" 2>/dev/null; then
+    elif [[ -e "$P/lock" || -L "$P/lock" ]] && grep -q 'ui.systemUsesDarkTheme' "$P/prefs.js" 2>/dev/null; then
         printf '  NOTE: ui.systemUsesDarkTheme is still pinned in prefs.js; quit Zen and\n'
         printf '        re-run this script to clear it, or the browser will not follow the\n'
         printf '        palette.\n'

@@ -70,6 +70,13 @@ err()  { printf '%s==>%s %s\n' "$c_err" "$c_off" "$*" >&2; }
 step() { printf '  %s·%s %s\n' "$c_dim" "$c_off" "$*"; }
 run()  { if (( DRY )); then printf '  %s[dry]%s %s\n' "$c_dim" "$c_off" "$*"; else "$@"; fi; }
 
+# A private snapshot must exist before any source bytes are copied. A config
+# may rely on its parent directory for privacy while its files are mode 0644.
+ensure_backup() {
+    run mkdir -p -m 700 "$BACKUP"
+    run chmod 700 "$BACKUP"
+}
+
 # ── restore mode ─────────────────────────────────────────────────────────────
 if (( RESTORE )); then
     latest=""
@@ -78,13 +85,115 @@ if (( RESTORE )); then
     fi
     [[ -n "$latest" ]] || { err "no deploy backup found under $BACKUP_ROOT"; exit 1; }
     info "restoring from $latest"
-    while IFS= read -r -d '' item; do
-        rel="${item#"$latest"/}"
-        target="$CFG/$rel"
-        step "$rel"
-        run rm -rf "$target"
-        run cp -a "$item" "$target"
-    done < <(find "$latest" -mindepth 1 -maxdepth 1 -print0)
+    # Deploy backups contain only replaced paths, not complete config trees.
+    # Merge their leaves, saving current replacements separately. In particular,
+    # never descend into a live repo/external symlink while restoring children.
+    python3 - "$latest" "$CFG" "$BACKUP_ROOT" "$STAMP" "$DRY" "$BIN" <<'PYRESTORE'
+import os
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+
+source, config, backups = map(Path, sys.argv[1:4])
+stamp, dry = sys.argv[4], sys.argv[5] == "1"
+binary = Path(sys.argv[6])
+undo = None
+covered = []
+
+
+def present(path):
+    return path.exists() or path.is_symlink()
+
+
+def preserve(path, root, namespace):
+    global undo
+    if not present(path) or any(parent == path or parent in path.parents for parent in covered):
+        return
+    relative = Path(namespace) / path.relative_to(root)
+    if dry:
+        print(f"  [dry] save current {path}")
+    else:
+        if undo is None:
+            backups.mkdir(parents=True, exist_ok=True)
+            undo = Path(tempfile.mkdtemp(prefix=f"restore-{stamp}-", dir=backups))
+        saved = undo / relative
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(path), str(saved))
+    # When an ancestor itself was saved, there was no independent child at its
+    # original path. Do not write through its saved symlink into the repository.
+    covered.append(path)
+
+
+def directory(path, root, namespace):
+    if path == root:
+        if not dry:
+            path.mkdir(parents=True, exist_ok=True)
+        return
+    directory(path.parent, root, namespace)
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        if dry:
+            print(f"  [dry] detach {path} before restoring children")
+            preserve(path, root, namespace)
+            return
+        # Materialize a linked directory while retaining its unrelated children.
+        # copytree follows only the root link; nested links remain links.
+        staging = Path(tempfile.mkdtemp(prefix=".neobrix-restore-", dir=path.parent))
+        try:
+            if path.is_dir():
+                shutil.copytree(path, staging, symlinks=True, dirs_exist_ok=True)
+            preserve(path, root, namespace)
+            # An already-saved ancestor covers this materialized child, so
+            # preserve() intentionally leaves its copied link/file in place.
+            # Unlink that local copy before installing the real directory.
+            if present(path):
+                path.unlink()
+            os.replace(staging, path)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+    elif not dry:
+        path.mkdir(exist_ok=True)
+
+
+def restore(item, tree=source, root=config, namespace=""):
+    relative = item.relative_to(tree)
+    target = root / relative
+    if item.is_dir() and not item.is_symlink():
+        directory(target, root, namespace)
+        for child in sorted(item.iterdir()):
+            restore(child, tree, root, namespace)
+    else:
+        directory(target.parent, root, namespace)
+        print(f"  {'[dry] ' if dry else ''}restore {relative}")
+        preserve(target, root, namespace)
+        if not dry:
+            # A detached ancestor already saved the previous subtree. Its
+            # materialized child can now be replaced without another backup.
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            elif present(target):
+                target.unlink()
+            shutil.copy2(item, target, follow_symlinks=False)
+
+
+# Config backups retain their historic relative layout. The reserved namespace
+# has exactly one fixed destination; no backup can supply an absolute path.
+bin_backup = source / ".local-bin"
+if bin_backup.is_symlink() or (bin_backup.exists() and not bin_backup.is_dir()):
+    raise ValueError("Invalid .local-bin backup namespace")
+for item in sorted(source.iterdir()):
+    if item.name != ".local-bin":
+        restore(item)
+if bin_backup.is_dir():
+    for item in sorted(bin_backup.iterdir()):
+        restore(item, bin_backup, binary, ".local-bin")
+if undo is not None:
+    print(f"  current files saved to {undo}")
+PYRESTORE
+    if [[ -d "$latest/systemd/user" ]] && command -v systemctl >/dev/null; then
+        run systemctl --user daemon-reload || warn "could not reload user units; run systemctl --user daemon-reload in your session"
+    fi
     info "restored. Log out and back in, or: systemctl --user restart neobrix-session.target"
     exit 0
 fi
@@ -119,7 +228,12 @@ fi
 # ── linking ──────────────────────────────────────────────────────────────────
 # link <source-in-repo> <destination>
 link() {
-    local src="$REPO/$1" dst="$2"
+    local src="$REPO/$1" dst="$2" rel
+    case "$dst" in
+        "$CFG"/*) rel="${dst#"$CFG"/}" ;;
+        "$BIN"/*) rel=".local-bin/${dst#"$BIN"/}" ;;
+        *) err "unsupported deployment destination: $dst"; return 1 ;;
+    esac
     [[ -e "$src" ]] || { err "missing in repo: $1"; return 1; }
 
     if [[ -L "$dst" ]]; then
@@ -131,9 +245,9 @@ link() {
     fi
 
     if [[ -e "$dst" || -L "$dst" ]]; then
-        local rel="${dst#"$CFG"/}"
         local bdir="$BACKUP/$(dirname "$rel")"
         warn "backing up existing $dst"
+        ensure_backup
         run mkdir -p "$bdir"
         run cp -a "$dst" "$bdir/"
         run rm -rf "$dst"
@@ -165,6 +279,7 @@ retire_legacy_conf() {
     fi
 
     warn "retiring the legacy hyprlang configuration (this project is Lua now)"
+    ensure_backup
     run mkdir -p "$BACKUP/hypr"
     [[ -e "$conf" ]] && { run cp -aL "$conf" "$BACKUP/hypr/"; run rm -f "$conf"; }
     if [[ -d "$CFG/hypr/conf.d" ]]; then
@@ -343,8 +458,7 @@ info "linking scripts into $BIN"
 run mkdir -p "$BIN"
 for s in "$REPO"/scripts/*; do
     [[ -f "$s" && -x "$s" ]] || continue
-    run ln -sfn "$s" "$BIN/$(basename "$s")"
-    step "$BIN/$(basename "$s")"
+    link "scripts/$(basename "$s")" "$BIN/$(basename "$s")"
 done
 case ":$PATH:" in
     *":$BIN:"*) ;;
@@ -365,8 +479,7 @@ if (( ENABLE )); then
     info "installing systemd user units"
     run mkdir -p "$UNITS"
     for u in "$REPO"/systemd/*; do
-        run ln -sfn "$u" "$UNITS/$(basename "$u")"
-        step "$(basename "$u")"
+        link "systemd/$(basename "$u")" "$UNITS/$(basename "$u")"
     done
 
     run systemctl --user daemon-reload
@@ -394,24 +507,20 @@ else
     warn "skipping systemd (--no-enable)"
 fi
 
-# ── gsettings ────────────────────────────────────────────────────────────────
-# GTK4/libadwaita applications ignore gtk-theme-name and settings.ini's dark
-# preference; they follow org.gnome.desktop.interface, which xdg-desktop-portal-gtk
-# exposes to them. Without this, GTK4 apps stay dark next to a light shell.
+# ── initial application palette ─────────────────────────────────────────────
+# Main terminal configs and hyprlock already reference generated includes. Make
+# them available before the first session, even if the default Dawn never changes.
+# Prefer the running shell, then the last applied palette, then the fresh default.
+info "generating the application palette"
+palette_mode="$(qs -c neobrix ipc call theme get 2>/dev/null || true)"
+if [[ $palette_mode != dawn && $palette_mode != dusk ]]; then
+    palette_mode="$(cat "${XDG_STATE_HOME:-$HOME/.local/state}/neobrix/theme" 2>/dev/null || true)"
+fi
+[[ $palette_mode == dawn || $palette_mode == dusk ]] || palette_mode=dawn
+run "$REPO/scripts/neobrix-theme" "$palette_mode"
 if command -v gsettings >/dev/null; then
-    info "setting GTK/libadwaita preferences via gsettings"
-    iface="org.gnome.desktop.interface"
-    run gsettings set $iface color-scheme 'prefer-light'
-    run gsettings set $iface gtk-theme 'adw-gtk3'
-    run gsettings set $iface icon-theme 'Papirus-Light'
-    run gsettings set $iface cursor-theme 'Adwaita'
-    run gsettings set $iface cursor-size 24
-    run gsettings set $iface font-name 'JetBrainsMono Nerd Font 10'
-    run gsettings set $iface monospace-font-name 'JetBrainsMono Nerd Font Mono 10'
-    run gsettings set $iface document-font-name 'JetBrainsMono Nerd Font 10'
-    step "color-scheme=prefer-light, icons=Papirus-Light"
-else
-    warn "gsettings not available — GTK4 apps may not follow the light theme"
+    run gsettings set org.gnome.desktop.interface cursor-size 24
+    run gsettings set org.gnome.desktop.interface document-font-name 'JetBrainsMono Nerd Font 10'
 fi
 
 # ── default applications ─────────────────────────────────────────────────────
