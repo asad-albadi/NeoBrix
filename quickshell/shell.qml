@@ -29,6 +29,7 @@ ShellRoot {
     // reference these are only built on first access, which would delay the
     // notification server claiming org.freedesktop.Notifications.
     readonly property var warmup: [
+        ShellControl.ready,
         Theme.mode,
         Panels.current,
         Notifs.count,

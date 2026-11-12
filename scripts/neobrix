@@ -35,20 +35,24 @@ warn() { printf '  %s!%s %s\n' "$c_warn" "$c_off" "$*"; }
 head_() { printf '\n%s%s%s\n' "$c_dim" "$*" "$c_off"; }
 
 # ── reload ───────────────────────────────────────────────────────────────────
-# Quickshell reloads its QML on SIGUSR1, which keeps notification history and is
-# far cheaper than restarting the process. The unit maps that to ExecReload.
+# The unit asks Quickshell to reload through IPC, retaining the process and
+# notification history rather than sending an unhandled Unix signal.
 cmd_reload() {
+    FAILED=0
     hyprctl reload >/dev/null && ok "hyprland config reloaded" || bad "hyprctl reload failed"
     if systemctl --user --quiet is-active "$SHELL_UNIT"; then
         systemctl --user reload "$SHELL_UNIT" && ok "shell reloaded in place" \
             || bad "shell reload failed"
     else
-        systemctl --user start "$SHELL_UNIT" && ok "shell started"
+        systemctl --user start "$SHELL_UNIT" && ok "shell started" || bad "shell start failed"
     fi
+    return $(( FAILED > 0 ))
 }
 
 cmd_restart() {
+    FAILED=0
     systemctl --user restart "$SHELL_UNIT" && ok "shell restarted" || bad "restart failed"
+    return $(( FAILED > 0 ))
 }
 
 # ── check ────────────────────────────────────────────────────────────────────

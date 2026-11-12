@@ -10,9 +10,9 @@ ConditionEnvironment=WAYLAND_DISPLAY
 Type=simple
 # -c selects ~/.config/quickshell/neobrix/shell.qml.
 ExecStart=/usr/bin/qs -c neobrix
-# Quickshell reloads its QML in place on SIGUSR1, which is much cheaper than a
-# restart and keeps notification history.
-ExecReload=/bin/kill -USR1 $MAINPID
+# Ask the running shell to reload its QML in place. SIGUSR1 terminates current
+# Quickshell releases rather than reloading them, losing notification history.
+ExecReload=/usr/bin/qs -c neobrix ipc call shell reload
 Restart=on-failure
 RestartSec=2
 Slice=session.slice
