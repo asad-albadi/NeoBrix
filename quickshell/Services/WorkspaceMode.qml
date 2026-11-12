@@ -22,8 +22,8 @@ Singleton {
     function ids(name) { for (const m of monitors) if (m.name === name) return m.ids; return [] }
     function setEnabled(value) { change.command = ["neobrix-workspaces", "enabled", value ? "1" : "0"]; change.running = true }
     function setSpaces(value) { change.command = ["neobrix-workspaces", "spaces", String(value)]; change.running = true }
-    function focus(local) { action.command = ["neobrix-workspaces", "focus", String(local)]; action.running = true }
-    function cycle(delta) { action.command = ["neobrix-workspaces", "cycle", String(delta)]; action.running = true }
+    function focus(local, monitor) { action.command = ["neobrix-workspaces", "focus", String(local)].concat(monitor ? ["--monitor", monitor] : []); action.running = true }
+    function cycle(delta, monitor) { action.command = ["neobrix-workspaces", "cycle", String(delta)].concat(monitor ? ["--monitor", monitor] : []); action.running = true }
     function consume(text) { try { const v = JSON.parse(text); enabled = !!v.enabled; spaces = v.spaces || 5; monitors = v.monitors || [] } catch(e) {} }
     Process {
         id: probe

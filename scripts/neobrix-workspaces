@@ -29,16 +29,49 @@ def monitors():
     data.sort(key=lambda m: (m.get("x", 0), m.get("y", 0), m.get("name", "")))
     return data
 def key(m):
-    # Connector names change through docks. A serial is best; description is a
-    # useful fallback, with the connector only for anonymous virtual outputs.
+    # Base EDID identity: serials survive connector changes through docks.
+    # monitor_entries qualifies it when missing or duplicate metadata is ambiguous.
     parts = [str(m.get(k, "")) for k in ("make", "model", "serial", "description")]
     return "|".join(parts) if any(parts) else m.get("name", "")
+def monitor_entries(data):
+    """Disambiguate outputs whose EDID does not provide a unique identity.
+
+    Keep serial-bearing identities portable across docks. For anonymous or
+    duplicate EDIDs, remember the connector as well; two identical panels must
+    never share a workspace range. Migrate the old metadata-only assignment
+    once, rather than reserving its slot alongside the new connector key.
+    """
+    raw = monitors()
+    slots = data.setdefault("slots", {})
+    connectors = data.setdefault("connectors", {})
+    groups = {}
+    for m in raw:
+        groups.setdefault(key(m), []).append(m)
+    identities = {}
+    for base, group in groups.items():
+        prefix = base + "|output:"
+        qualified = (base != group[0]["name"] and not group[0].get("serial")) or len(group) > 1 \
+            or any(saved.startswith(prefix) for saved in slots)
+        if qualified and base in slots:
+            # A newly connected identical panel must not inherit the original
+            # panel's range just because its connector sorts first. Remember
+            # the connector while an EDID is unique. Legacy state has no owner;
+            # its best available fallback is the physical left-to-right order.
+            owner = next((m for m in group if m["name"] == connectors.get(base)), group[0])
+            identity = prefix + owner["name"]
+            slots.setdefault(identity, slots.pop(base))
+        if len(group) == 1:
+            connectors[base] = group[0]["name"]
+        for m in group:
+            identities[m["name"]] = prefix + m["name"] if qualified else base
+    return [(m, identities[m["name"]]) for m in raw]
+
 def mapping(data):
     slots = data.setdefault("slots", {})
+    entries = monitor_entries(data)
     used = set(slots.values())
     result = []
-    for m in monitors():
-        k = key(m)
+    for m, k in entries:
         if k not in slots:
             n = 0
             while n in used: n += 1
@@ -65,7 +98,7 @@ def compact_connected_slots(data):
         owner = next((candidate for candidate in owners if candidate["id"] == client.get("monitor")), None)
         workspace = client.get("workspace", {}).get("id")
         address = client.get("address")
-        if not owner or client.get("pinned") or not isinstance(workspace, int) or not address:
+        if not owner or client.get("pinned") or not isinstance(workspace, int) or workspace < 1 or not address:
             continue
         local = workspace - owner["slot"] * spaces
         target = targets[owner["id"]] * spaces + (local if 1 <= local <= spaces else 1)
@@ -84,9 +117,9 @@ def compact_connected_slots(data):
             placed.add((target, monitor))
 
     slots = data.setdefault("slots", {})
-    for raw in monitors():
+    for raw, identity in monitor_entries(data):
         if raw.get("id") in targets:
-            slots[key(raw)] = targets[raw["id"]]
+            slots[identity] = targets[raw["id"]]
     return True
 def workspace_id(data, monitor, local):
     for m in mapping(data):
@@ -104,6 +137,26 @@ def dispatch(expr):
 
 def focus_workspace(workspace):
     dispatch("hl.dsp.focus({ workspace = " + json.dumps(workspace) + " })")
+
+def requested_monitor(data, args):
+    name = getattr(args, "monitor", None) or active_monitor(data)
+    if not any(m["name"] == name for m in mapping(data)):
+        raise ValueError("monitor is not connected: " + name)
+    return name
+
+def focus_local_workspace(data, monitor, workspace):
+    # Workspace IDs are global, including empty persistent workspaces. A bar
+    # click must not follow a stale ID onto another output. Preserve ordinary
+    # windows on their physical display before reclaiming a foreign ID.
+    existing = next((w for w in hypr_json("workspaces") if w.get("id") == workspace), None)
+    if existing and existing.get("monitor") != monitor:
+        if existing.get("windows", 0):
+            migrate_on_enable(data)
+        move_workspace(workspace, monitor)
+    # New workspaces are created on the focused monitor. Layer-shell clicks
+    # alone do not reliably change Hyprland's monitor focus.
+    dispatch("hl.dsp.focus({ monitor = " + json.dumps(monitor) + " })")
+    focus_workspace(workspace)
 
 def move_window(workspace):
     dispatch("hl.dsp.window.move({ workspace = " + json.dumps(workspace) + ", silent = true })")
@@ -144,9 +197,9 @@ def reconcile_slots(data):
     if len(set(final.values())) != len(final):
         return
     slots = data.setdefault("slots", {})
-    for raw in monitors():
+    for raw, identity in monitor_entries(data):
         if raw.get("id") in final:
-            slots[key(raw)] = final[raw["id"]]
+            slots[identity] = final[raw["id"]]
 
 def migrate_on_enable(data):
     """Put every ordinary window in the active display's local ID range.
@@ -195,7 +248,7 @@ def migrate_spaces(data, old_spaces, new_spaces):
         owner = owners.get(client.get("monitor"))
         workspace = client.get("workspace", {}).get("id")
         address = client.get("address")
-        if not owner or not isinstance(workspace, int) or not address:
+        if not owner or client.get("pinned") or not isinstance(workspace, int) or not address:
             continue
         local = workspace - owner["slot"] * old_spaces
         if local < 1 or local > old_spaces:
@@ -235,24 +288,23 @@ def execute(a):
             migrate_spaces(data, old_spaces, new_spaces)
         data["spaces"] = new_spaces; save(data)
     elif a.cmd in ("focus", "move"):
-        local = max(1, min(int(data["spaces"]), a.value))
+        local = max(1, min(int(data["spaces"]) if data.get("enabled") else 10, a.value))
         if not data.get("enabled"):
             if a.cmd == "focus": focus_workspace(local)
             else: move_window(local)
         else:
-            mon = active_monitor(data); wid = workspace_id(data, mon, local)
-            if a.cmd == "focus": focus_workspace(wid)
+            mon = requested_monitor(data, a); wid = workspace_id(data, mon, local)
+            if a.cmd == "focus": focus_local_workspace(data, mon, wid)
             else: move_window(wid)
     elif a.cmd == "cycle":
         if not data.get("enabled"):
             focus_workspace("e+1" if a.value > 0 else "e-1")
         else:
-            mon = active_monitor(data); ids = [workspace_id(data, mon, i) for i in range(1, int(data["spaces"]) + 1)]
-            try: current = json.loads(hypr("-j", "activeworkspace")).get("id")
-            except Exception: current = None
+            mon = requested_monitor(data, a); ids = [workspace_id(data, mon, i) for i in range(1, int(data["spaces"]) + 1)]
+            current = next((m.get("activeWorkspace", {}).get("id") for m in monitors() if m["name"] == mon), None)
             index = ids.index(current) if current in ids else 0
             wid = ids[(index + (1 if a.value > 0 else -1)) % len(ids)]
-            focus_workspace(wid)
+            focus_local_workspace(data, mon, wid)
     if a.cmd in ("show", "map"):
         # Startup and monitor events request this probe. Reconcile under the
         # same lock as settings changes, including the initial state read.
@@ -270,6 +322,8 @@ def main(argv=None):
     sub.add_parser("show"); sub.add_parser("map")
     for name in ("enabled", "spaces", "focus", "move", "cycle"):
         q = sub.add_parser(name); q.add_argument("value", type=int)
+        if name in ("focus", "cycle"):
+            q.add_argument("--monitor", help="output receiving the action (defaults to focused output)")
     args = p.parse_args(argv)
     # A separate, stable inode: save() replaces the state file atomically.
     # Lock before load(), and hold it through migration and save, so shell
@@ -279,7 +333,10 @@ def main(argv=None):
     fd = os.open(STATE.with_suffix(".lock"), os.O_CREAT | os.O_RDWR, 0o600)
     with os.fdopen(fd, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        execute(args)
+        try:
+            execute(args)
+        except ValueError as error:
+            p.exit(1, str(error) + "\n")
 
 if __name__ == "__main__":
     main()

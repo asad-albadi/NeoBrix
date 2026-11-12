@@ -200,7 +200,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: WorkspaceMode.enabled ? WorkspaceMode.focus(slot.modelData.local) : Hypr.focusWorkspace(slot.modelData.id)
+                    onClicked: WorkspaceMode.enabled ? WorkspaceMode.focus(slot.modelData.local, root.monitor.name) : Hypr.focusWorkspace(slot.modelData.id)
                 }
 
                 WorkspacePreview {
@@ -211,6 +211,8 @@ Item {
                     onWindowChosen: toplevel => {
                         if (toplevel && toplevel.address)
                             Hypr.focusWindow(toplevel.address);
+                        else if (WorkspaceMode.enabled)
+                            WorkspaceMode.focus(slot.modelData.local, root.monitor.name);
                         else
                             Hypr.focusWorkspace(slot.modelData.id);
                     }
@@ -249,7 +251,7 @@ Item {
         anchors.fill: parent
         acceptedButtons: Qt.NoButton
         onWheel: wev => {
-            WorkspaceMode.enabled ? WorkspaceMode.cycle(wev.angleDelta.y > 0 ? -1 : 1)
+            WorkspaceMode.enabled ? WorkspaceMode.cycle(wev.angleDelta.y > 0 ? -1 : 1, root.monitor.name)
                                   : Hypr.focusWorkspaceRelative(wev.angleDelta.y > 0 ? "m-1" : "m+1");
         }
     }
