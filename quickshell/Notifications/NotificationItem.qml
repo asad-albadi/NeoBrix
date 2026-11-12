@@ -68,6 +68,18 @@ Item {
 
     implicitHeight: card.implicitHeight
 
+    // Put the body action behind the card's controls and styled links.
+    // Middle-click only dismisses; left-click invokes the default action.
+    MouseArea {
+        anchors.fill: card
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+        onClicked: event => {
+            if (event.button === Qt.LeftButton && root.defaultAction)
+                root.defaultAction.invoke();
+            root.dismissed();
+        }
+    }
+
     BrixCard {
         id: card
         anchors.left: parent.left
@@ -233,26 +245,6 @@ Item {
 
                 Item { Layout.fillWidth: true }
             }
-        }
-    }
-
-    // Middle-click anywhere dismisses; useful for toasts.
-    // Clicking the notification activates it, which is what the default action
-    // is for — the terminal that sent it comes forward, rather than the
-    // notification quietly disappearing and the action being unreachable.
-    //
-    // Unverified: this handler could not be observed firing at all, on a toast
-    // or in the centre, so notification surfaces appear not to be taking clicks.
-    // That is not new — the previous handler here was a bare dismissed() and
-    // would have been just as unreachable — and it is the correct thing to run
-    // when a click does arrive, so it stays while the input path is looked at
-    // separately.
-    MouseArea {
-        anchors.fill: card
-        acceptedButtons: Qt.MiddleButton
-        onClicked: {
-            if (root.defaultAction) root.defaultAction.invoke();
-            root.dismissed();
         }
     }
 }

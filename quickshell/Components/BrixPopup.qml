@@ -102,7 +102,7 @@ PanelWindow {
         if (open) {
             closeTimer.stop();
             rendered = true;
-            keyCatcher.forceActiveFocus();
+            holder.forceActiveFocus();
             panelOpened();
         } else {
             closeTimer.restart();
@@ -129,15 +129,12 @@ PanelWindow {
         }
     }
 
-    Item {
-        id: keyCatcher
-        anchors.fill: parent
+    // Every focused child bubbles unhandled keys through this scope. A
+    // sibling key catcher stops receiving Escape as soon as an input focuses.
+    FocusScope {
+        id: holder
         focus: true
         Keys.onEscapePressed: root.close()
-    }
-
-    Item {
-        id: holder
         width: root.contentWidth
         height: root.contentHeight
 

@@ -151,6 +151,17 @@ BrixPopup {
                         width: ListView.view.width - Theme.spaceSm
                         height: 34
 
+                        // The row sits behind its controls, so Delete receives
+                        // its own click rather than selecting and copying it.
+                        MouseArea {
+                            id: clipMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onEntered: list.currentIndex = clipRow.index
+                            onClicked: { list.currentIndex = clipRow.index; root.useCurrent(); }
+                        }
+
                         BrixCard {
                             anchors.fill: parent
                             radius: Theme.radiusXs
@@ -196,15 +207,6 @@ BrixPopup {
                                     onClicked: Clip.remove(clipRow.modelData)
                                 }
                             }
-                        }
-
-                        MouseArea {
-                            id: clipMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onEntered: list.currentIndex = clipRow.index
-                            onClicked: { list.currentIndex = clipRow.index; root.useCurrent(); }
                         }
                     }
 
