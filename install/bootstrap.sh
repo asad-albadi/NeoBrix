@@ -45,7 +45,7 @@ Neobrix bootstrap — install a Neobrix desktop on CachyOS or Arch.
 Checks the machine, clones the repository, and hands off to install/packages.sh
 and install/deploy.sh, which do the real work and are worth reading first.
 
-  --yes           non-interactive: safe defaults, and removes nothing
+  --yes           non-interactive: keep competing setups; accept package upgrades/replacements
   --no-packages   skip pacman; only link configuration
   --greeter       also STAGE the login screen: writes /etc/greetd and a recovery
                   file, but never replaces config.toml and never enables greetd.

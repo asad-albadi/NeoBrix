@@ -64,9 +64,15 @@ reading too. It installs the packages, links the configuration into `~/.config`,
 installs and enables the systemd user units, generates the wallpapers and the
 palette-derived themes, and themes Zen Browser if a profile exists.
 
+When packages are missing, installation uses `pacman -Syu --needed` so they are
+installed alongside a full system upgrade, as required by Arch's rolling-release
+model. Pacman prompts before applying changes; `--yes` accepts that upgrade too.
+The preflight refreshes repository metadata, so after cancelling installation,
+complete `sudo pacman -Syu` before installing individual packages.
+
 | Flag | Effect |
 |---|---|
-| `--yes` | Non-interactive. Safe defaults, and **removes nothing**. |
+| `--yes` | Non-interactive. Keeps competing setups; accepts package upgrades and replacements. |
 | `--no-packages` | Skip `pacman`; only link configuration. |
 | `--greeter` | Also stage the login screen. Asked about otherwise; never silent. |
 | `--dir <path>` | Where to clone. Default `~/Projects/neobrix`, or `$NEOBRIX_DIR`. |

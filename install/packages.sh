@@ -235,6 +235,12 @@ if (( ${#unavailable[@]} )); then
     fi
 fi
 
+# Add optional mpv support to the same transaction and confirmation policy.
+if pacman -Qq mpv >/dev/null 2>&1 && ! pacman -Qq mpv-mpris >/dev/null 2>&1 \
+   && pacman -Si mpv-mpris >/dev/null 2>&1; then
+    missing+=(mpv-mpris)
+fi
+
 if (( ${#missing[@]} == 0 )); then
     info "all repository packages already installed"
     (( CHECK_ONLY )) || configure_pacman_style
@@ -243,6 +249,7 @@ fi
 
 info "missing: ${missing[*]}"
 (( CHECK_ONLY )) && exit 1
+info "installing missing packages with a full system upgrade (pacman -Syu)"
 
 # ── install ──────────────────────────────────────────────────────────────────
 # The confirmation is answered by a person or it is not answered at all.
@@ -267,6 +274,7 @@ info "missing: ${missing[*]}"
 confirm=()
 if (( ASSUME_YES )); then
     warn "--yes: installing without pacman's confirmation."
+    warn "This also accepts the full system upgrade required after refreshing databases."
     warn "That accepts package replacements and conflict resolutions too, not"
     warn "just the proceed prompt — repository packages may replace -git builds."
     confirm=(--noconfirm)
@@ -283,12 +291,8 @@ else
     exec 3>&-
 fi
 
-sudo pacman -S --needed "${confirm[@]}" "${missing[@]}"
-
-# mpv-mpris is optional but makes mpv show up in the shell's media controls.
-if pacman -Qq mpv >/dev/null 2>&1 && ! pacman -Qq mpv-mpris >/dev/null 2>&1; then
-    info "mpv is installed; adding mpv-mpris for MPRIS support"
-    sudo pacman -S --needed --noconfirm mpv-mpris || true
-fi
+# After a database refresh, a targets-only -S would be an unsupported partial
+# upgrade on an outdated system. Resolve targets and upgrade as one transaction.
+sudo pacman -Syu --needed "${confirm[@]}" "${missing[@]}"
 
 configure_pacman_style
