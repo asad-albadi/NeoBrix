@@ -22,6 +22,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -uo pipefail
+umask 077
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd -- "$HERE/../.." && pwd)"
@@ -324,7 +325,7 @@ test_confirmation() {
 case "$1" in
   -Qq) [[ $2 == cliphist ]] && exit 1; exit 0 ;;
   -Sy|-Si) exit 0 ;;
-  -S)  printf '%s\n' "$*" >> "$PACMAN_LOG"; exit 0 ;;
+  -S|-Syu)  printf '%s\n' "$*" >> "$PACMAN_LOG"; exit 0 ;;
 esac
 exit 1
 EOF
@@ -350,13 +351,14 @@ EOF
     assert_eq  "exit status"                 "0" "$ec"
     assert_has "installed the missing one"   "cliphist" "$(cat "$log")"
     assert_has "with --noconfirm"            "--noconfirm" "$(cat "$log")"
+    assert_has "missing packages use a supported full upgrade" "-Syu --needed" "$(cat "$log")"
     assert_has "named replacements, not just the prompt" \
                "accepts package replacements and conflict resolutions" "$out"
 
     case_ "confirmation: at a terminal the prompt is left to be answered"
     : > "$log"
     # A real pty, so /dev/tty opens and the interactive branch is the one taken.
-    out="$(script -qec "env PATH=$d/bin:\$PATH PACMAN_LOG=$log bash $REPO/install/packages.sh" /dev/null </dev/null 2>&1)"; ec=$?
+    out="$(SHELL=/bin/bash script -qec "env PATH=$d/bin:\$PATH PACMAN_LOG=$log bash $REPO/install/packages.sh" /dev/null </dev/null 2>&1)"; ec=$?
     assert_eq    "exit status"                "0" "$ec"
     assert_has   "pacman was run"             "cliphist" "$(cat "$log")"
     assert_lacks "without --noconfirm"        "--noconfirm" "$(cat "$log")"
@@ -770,13 +772,16 @@ test_idle_inhibit() {
 
     local dir="$TMP/inh"
     mkdir -p "$dir/bin" "$dir/run"
-    # A stand-in for systemd-inhibit that behaves like the real one for this
-    # purpose: it holds until killed.
-    cat > "$dir/bin/systemd-inhibit" <<'STUB'
-#!/usr/bin/env bash
-exec sleep infinity
+    # Keep a native executable identity, as the real inhibitor does. A shell
+    # stub exec'ing sleep no longer satisfies the process-ownership check.
+    if ! command -v cc >/dev/null; then
+        skip "native inhibitor fixture requires a C compiler"
+        return
+    fi
+    cc -x c -o "$dir/bin/systemd-inhibit" - <<'STUB'
+#include <unistd.h>
+int main(void) { for (;;) pause(); }
 STUB
-    chmod +x "$dir/bin/systemd-inhibit"
 
     local run=(env "PATH=$dir/bin:$PATH" "XDG_RUNTIME_DIR=$dir/run"
                "$REPO/scripts/neobrix-idle")
@@ -810,7 +815,7 @@ STUB
     # the handful of tools the script uses, but deliberately no systemd-inhibit.
     mkdir -p "$dir/bare"
     local t
-    for t in env bash cat rm sleep setsid readlink dirname basename; do
+    for t in env bash cat rm sleep setsid readlink dirname basename stat flock; do
         [[ -x /usr/bin/$t ]] && ln -sf "/usr/bin/$t" "$dir/bare/$t"
     done
     local out; out="$(env -i "PATH=$dir/bare" "HOME=$dir" "XDG_RUNTIME_DIR=$dir/run" \
@@ -1051,33 +1056,31 @@ SH
     assert_eq "the reduced count is saved" "3" \
         "$(jq -r '.spaces' "$dir/state/neobrix/workspaces.json")"
 
-    # An output order can change between docked sessions.  When enabling from
-    # the old normal layout, visible client IDs are enough to repair an
-    # otherwise inverted saved assignment without moving those clients.
+    # Infer the existing local numbers, then compact connected outputs into
+    # left-to-right ranges. The local numbers survive even an inverted layout.
     printf '%s\n' '{"enabled":false,"spaces":5,"slots":{"Acme|Panel|a|A":0,"Acme|Panel|b|B":1}}' \
         > "$dir/state/neobrix/workspaces.json"
     env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "HYPR_LOG=$dir/hypr.log" HYPR_LAYOUT=inverse \
         "$REPO/scripts/neobrix-workspaces" enabled 1
-    assert_eq "enabling repairs an evidenced inverted first-display slot" "1" \
+    assert_eq "enabling compacts the first-display slot" "0" \
         "$(jq -r '.slots["Acme|Panel|a|A"]' "$dir/state/neobrix/workspaces.json")"
-    assert_eq "enabling repairs an evidenced inverted second-display slot" "0" \
+    assert_eq "enabling compacts the second-display slot" "1" \
         "$(jq -r '.slots["Acme|Panel|b|B"]' "$dir/state/neobrix/workspaces.json")"
 
-    # New physical displays receive fresh slots, but their ordinary pre-mode
-    # workspace IDs do not. Enabling must move those windows into the new
-    # ranges, otherwise the per-monitor bar has no slot in which to show them.
+    # Stale saved slots must not reserve invisible gaps for disconnected
+    # displays. Compact them and keep an already-visible first-display window.
     printf '%s\n' '{"enabled":false,"spaces":5,"slots":{"Acme|Panel|a|A":2,"Acme|Panel|b|B":3}}' \
         > "$dir/state/neobrix/workspaces.json"
     : > "$dir/hypr.log"
     env "PATH=$dir/bin:$PATH" "XDG_STATE_HOME=$dir/state" "HYPR_LOG=$dir/hypr.log" HYPR_LAYOUT=stale \
         "$REPO/scripts/neobrix-workspaces" enabled 1
     calls="$(cat "$dir/hypr.log")"
-    assert_has "enabling collects an out-of-range first-display window" \
-        'window = "address:0xa1", workspace = 11' "$calls"
-    assert_lacks "a window already in its display range is left there" \
-        'window = "address:0xb16"' "$calls"
+    assert_lacks "a window already in its compact display range is left there" \
+        'window = "address:0xa1"' "$calls"
+    assert_has "enabling collects a stale second-display window" \
+        'window = "address:0xb16", workspace = 6' "$calls"
     assert_has "the created workspace is placed on its display" \
-        'workspace = 11, monitor = "A"' "$calls"
+        'workspace = 6, monitor = "B"' "$calls"
 }
 
 test_obsidian_theme() {
