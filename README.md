@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bo
 
 **Themed applications:** Quickshell, Hyprland, hyprlock, ReGreet, GTK 3/4,
 Qt 5/6, KDE apps, Kitty, Fish, Fastfetch, btop, Zen Browser, Dark Reader,
-Cursor, VS Code and Zed.
+Cursor, VS Code, Zed, Herdr TUI and Herdr desktop.
 
 **Steam:** an optional [NeoBrix Millennium theme](theming/steam/README.md)
 follows the dawn/dusk palette. Millennium must be installed separately.

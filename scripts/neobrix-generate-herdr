@@ -20,9 +20,16 @@ CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
 HERDR_DIR="$CFG/herdr"
 CONFIG="$HERDR_DIR/config.toml"
 
+# The desktop app can be installed without the TUI. Run its integration before
+# the TUI's presence check; each keeps its own settings and skips itself if absent.
+GUI_STATUS=0
+if [[ -x "$HERE/neobrix-generate-herdr-app" ]]; then
+    "$HERE/neobrix-generate-herdr-app" "$MODE" || GUI_STATUS=$?
+fi
+
 # Do not create a HerdR configuration for people who do not use it.
 if ! command -v herdr >/dev/null 2>&1 && [[ ! -d "$HERDR_DIR" ]]; then
-    exit 0
+    exit "$GUI_STATUS"
 fi
 
 palette_vars() {
@@ -140,3 +147,5 @@ PY
 
 # HerdR applies theme values after a config reload; a restart is not required.
 herdr server reload-config >/dev/null 2>&1 || true
+# GUI errors must be reported without preventing an independent TUI update.
+exit "$GUI_STATUS"

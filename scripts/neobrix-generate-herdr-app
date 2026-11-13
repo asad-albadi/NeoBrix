@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Generate the Herdr desktop app's palettes and follow NeoBrix's appearance.
+# Herdr's GUI settings and themes are separate from the legacy TUI config.
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+source "$HERE/lib/palette.sh"
+
+MODE="${1:-dawn}"
+[[ "$MODE" == dawn || "$MODE" == dusk ]] || {
+    echo 'usage: neobrix-generate-herdr-app [dawn|dusk]' >&2
+    exit 2
+}
+
+APP_DIR="${HERDR_APP_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr-app}"
+if ! command -v herdr-app >/dev/null 2>&1 && [[ ! -d "$APP_DIR" ]]; then
+    exit 0
+fi
+
+palette_vars() {
+    local key
+    for key in DESKTOP BG SURFACE_ALT BG_DEEP FG FG_DIM OUTLINE PRIMARY ON_ACCENT \
+               INK_PRIMARY INK_SUCCESS INK_WARNING INK_ERROR \
+               N_BLACK N_RED N_GREEN N_YELLOW N_BLUE N_MAGENTA N_CYAN N_WHITE \
+               B_BLACK B_RED B_GREEN B_YELLOW B_BLUE B_MAGENTA B_CYAN B_WHITE; do
+        printf '%s=%s\n' "$key" "${!key}"
+    done
+}
+
+DAWN="$(neobrix_palette dawn; palette_vars)"
+DUSK="$(neobrix_palette dusk; palette_vars)"
+
+NB_APP_DIR="$APP_DIR" NB_MODE="$MODE" NB_DAWN="$DAWN" NB_DUSK="$DUSK" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+import stat
+import tempfile
+
+
+def write_json(path, value, mode=0o644):
+    content = json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+    if path.exists() and path.read_text() == content:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".neobrix-", suffix=".json", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(content)
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def theme(blob):
+    p = {key: "#" + value for key, value in
+         (line.split("=", 1) for line in blob.splitlines())}
+    return {
+        "background": p["BG"], "foreground": p["FG"],
+        "selection": p["PRIMARY"], "cursor": p["PRIMARY"],
+        "ansi": [p[prefix + name] for prefix in ("N_", "B_") for name in
+                 ("BLACK", "RED", "GREEN", "YELLOW", "BLUE", "MAGENTA", "CYAN", "WHITE")],
+        "colors": {
+            "background": p["BG"], "canvas": p["DESKTOP"],
+            "chrome": p["SURFACE_ALT"], "surface": p["BG"], "popover": p["BG"],
+            # A card surface highlights a row against the sidebar without
+            # reducing contrast for muted copy or status labels in Dawn.
+            "raised": p["SURFACE_ALT"], "hover": p["BG"], "selected": p["BG"],
+            "border": p["OUTLINE"], "input": p["INK_PRIMARY"],
+            "foreground": p["FG"], "muted": p["FG_DIM"], "dim": p["FG_DIM"],
+            "accent": p["INK_PRIMARY"], "accent_foreground": p["BG"],
+            "solid": p["PRIMARY"], "solid_foreground": p["ON_ACCENT"],
+            "selection": p["PRIMARY"], "ring": p["INK_PRIMARY"],
+            "working": p["INK_WARNING"], "blocked": p["INK_ERROR"],
+            "done": p["INK_SUCCESS"], "idle": p["FG_DIM"], "unknown": p["FG_DIM"],
+        },
+    }
+
+
+root = Path(os.environ["NB_APP_DIR"])
+settings_path = root / "settings.json"
+try:
+    settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
+    if not isinstance(settings, dict):
+        raise ValueError("expected a JSON object")
+except (ValueError, OSError) as error:
+    raise SystemExit(f"neobrix-generate-herdr-app: refusing to replace invalid settings: {error}")
+
+# Parse the user's settings before writing anything. Never repair malformed
+# settings by replacing them, or touch shipped layouts, mods, or click state.
+for mode in ("dawn", "dusk"):
+    write_json(root / "themes" / f"neobrix-{mode}.json", theme(os.environ["NB_" + mode.upper()]))
+settings["theme"] = {"light": "neobrix-dawn", "dark": "neobrix-dusk"}
+settings["appearance"] = "light" if os.environ["NB_MODE"] == "dawn" else "dark"
+permissions = stat.S_IMODE(settings_path.stat().st_mode) if settings_path.exists() else 0o600
+write_json(settings_path, settings, permissions)
+PY
+
+# Files are watched live. The native picker command also overrides a theme
+# previously chosen on the current layout, without editing Herdr-owned files.
+# A closed/unresponsive app simply picks up its settings on the next launch.
+if command -v herdr-app >/dev/null 2>&1; then
+    HERDR_APP_HOME="$APP_DIR" timeout 5s herdr-app do app.theme --name "neobrix-$MODE" >/dev/null 2>&1 || true
+fi

@@ -633,9 +633,9 @@ if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-zed" ]]; then
     "$(dirname "$(readlink -f "$0")")/neobrix-generate-zed" "$MODE" >/dev/null 2>&1 || true
 fi
 
-# HerdR owns its own TUI chrome rather than inheriting terminal ANSI colours.
-# Its generator preserves user settings and writes only NeoBrix's Dawn/Dusk
-# colour roles, then asks HerdR to reload them in place.
+# Herdr's TUI and desktop GUI have separate theme systems. The entry point
+# generates both Dawn/Dusk palettes, preserves personal settings, and applies
+# this mode to the running GUI through its native theme picker.
 if [[ -x "$(dirname "$(readlink -f "$0")")/neobrix-generate-herdr" ]]; then
     "$(dirname "$(readlink -f "$0")")/neobrix-generate-herdr" "$MODE" >/dev/null 2>&1 || true
 fi
