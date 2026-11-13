@@ -31,16 +31,17 @@ curl -fsSL https://raw.githubusercontent.com/asad-albadi/NeoBrix/main/install/bo
 - Complete Quickshell desktop: bar, launcher, workspace previews, calendar,
   clipboard, session controls, notifications, media and level OSDs
 - Unified control center for system resources, connectivity, displays and local
-  Codex, Claude Code and Cursor account usage
+  Codex, Claude Code, Cursor and Antigravity CLI account usage
 - Two live palettes — `dawn` and `dusk` — with generated wallpapers and themes
-- Hyprland workflow with scratchpad, window/workspace controls, lock, idle and
-  suspend integration
+- Hyprland workflow with scratchpad, optional per-monitor workspaces,
+  window/workspace controls, lock, idle and suspend integration
 - Live keyboard-layout indicator in the top-right bar; click it to select a layout
 - Styled `pacman` output and a NeoBrix package-update flow
 
 **Themed applications:** Quickshell, Hyprland, hyprlock, ReGreet, GTK 3/4,
-Qt 5/6, KDE apps, Kitty, Fish, Fastfetch, btop, Zen Browser, Dark Reader,
-Cursor, VS Code, Zed, Herdr TUI, Herdr desktop and ChatGPT desktop.
+Qt 5/6, KDE apps, Kitty, Alacritty, Fish, Fastfetch, btop, Zen Browser,
+Dark Reader, Cursor, VS Code, Zed, Obsidian, Herdr TUI, Herdr desktop,
+ChatGPT desktop and Steam.
 
 **Steam:** an optional [NeoBrix Millennium theme](theming/steam/README.md)
 follows the dawn/dusk palette. Millennium must be installed separately.
@@ -117,7 +118,7 @@ not start means a machine you cannot log into:
   greetd would end the session you are sitting in.
 
 Answer no and it tells you the one-liner for later. See
-[Login screen](#login-screen).
+[Login screen](https://github.com/asad-albadi/NeoBrix/wiki/Reference#login-screen).
 
 *Fingerprint authentication* — optional and scoped to NeoBrix's ReGreet login
 screen and hyprlock only. After installing `fprintd` and enrolling a finger,
@@ -158,7 +159,7 @@ The design language is deliberate:
 * chunky controls, sized to be hit rather than aimed at
 
 Two palettes ship: **Neobrix Light** (`dawn`) and **Neobrix Dark** (`dusk`).
-Neither is a naive inversion of the other — see [Theming](#theme-architecture).
+Neither is a naive inversion of the other — see [Theming](https://github.com/asad-albadi/NeoBrix/wiki/Reference#theme-architecture).
 
 ### Built with AI assistance
 
@@ -186,7 +187,7 @@ against archlinux.org's package API, not assumed. Two **applications** are not:
 they are AUR packages. `install/packages.sh` treats those two as optional and
 skips them with a note rather than failing, so a plain Arch install needs no AUR
 helper to get a working desktop — you just supply your own browser and editor, or
-install those two from the AUR yourself. See [Dependencies](#dependencies).
+install those two from the AUR yourself. See [Dependencies](https://github.com/asad-albadi/NeoBrix/wiki/Reference#dependencies).
 
 ## Screenshots
 
