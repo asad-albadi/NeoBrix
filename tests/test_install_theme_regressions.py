@@ -24,6 +24,7 @@ class TemporaryHomeTest(unittest.TestCase):
             "XDG_DATA_HOME": str(self.home / "data"),
             "XDG_STATE_HOME": str(self.home / "state"),
             "XDG_CACHE_HOME": str(self.home / "cache"),
+            "CODEX_HOME": str(self.home / "codex"),
             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
         }
         self.env.pop("QS_CONFIG_PATH", None)

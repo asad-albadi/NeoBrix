@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# Configure OpenAI's desktop app through its bundled native config API.
+set -euo pipefail
+
+MODE="${1:-dawn}"
+[[ "$MODE" == dawn || "$MODE" == dusk ]] || {
+    echo 'usage: neobrix-generate-chatgpt [dawn|dusk]' >&2
+    exit 2
+}
+HERE="$(dirname "$(readlink -f "$0")")"
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+DESKTOP="$(command -v chatgpt || true)"
+BACKEND="${NEOBRIX_CHATGPT_CODEX:-}"
+if [[ -z "$DESKTOP" && ! -d "$CFG/Codex" && -z "$BACKEND" ]]; then
+    exit 0
+fi
+if [[ -z "$BACKEND" && -n "$DESKTOP" ]]; then
+    BACKEND="$(dirname "$(readlink -f "$DESKTOP")")/resources/codex"
+fi
+if [[ ! -x "$BACKEND" && -z "${NEOBRIX_CHATGPT_CODEX:-}" && -d "$CFG/Codex" ]]; then
+    BACKEND="$(command -v codex || true)"
+fi
+[[ -x "$BACKEND" ]] || {
+    echo 'neobrix-generate-chatgpt: desktop configuration backend is unavailable; nothing changed' >&2
+    exit 1
+}
+
+source "$HERE/lib/palette.sh"
+palette_vars() {
+    local key
+    for key in BG FG INK_PRIMARY INK_SUCCESS INK_ERROR INK_TERTIARY; do
+        printf '%s=%s\n' "$key" "${!key}"
+    done
+}
+DAWN="$(neobrix_palette dawn; palette_vars)"
+DUSK="$(neobrix_palette dusk; palette_vars)"
+
+NB_BACKEND="$BACKEND" NB_DAWN="$DAWN" NB_DUSK="$DUSK" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import sys
+import time
+import tomllib
+
+
+class RpcError(Exception):
+    def __init__(self, method, error):
+        # Server errors can include configuration content. Only report the
+        # method/code, never model, credentials, or unrelated preferences.
+        super().__init__(f"{method} failed (code {error.get('code', 'unknown')})")
+        self.error = error
+
+
+class ConfigClient:
+    def __init__(self, root):
+        self.proc = subprocess.Popen(
+            [os.environ["NB_BACKEND"], "app-server", "--listen", "stdio://"],
+            cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        self.pending = b""
+        self.next_id = 0
+
+    def request(self, method, params):
+        self.next_id += 1
+        request_id = self.next_id
+        self.send({"id": request_id, "method": method, "params": params})
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            while b"\n" in self.pending:
+                line, self.pending = self.pending.split(b"\n", 1)
+                response = json.loads(line)
+                if response.get("id") != request_id:
+                    continue
+                if "error" in response:
+                    raise RpcError(method, response["error"])
+                return response.get("result", {})
+            if select.select([self.proc.stdout], [], [], .1)[0]:
+                chunk = os.read(self.proc.stdout.fileno(), 65536)
+                if not chunk:
+                    raise RuntimeError("configuration backend exited")
+                self.pending += chunk
+                if len(self.pending) > 8 * 1024 * 1024:
+                    raise RuntimeError("configuration response is too large")
+        raise TimeoutError("configuration backend timed out")
+
+    def send(self, message):
+        self.proc.stdin.write((json.dumps(message) + "\n").encode())
+        self.proc.stdin.flush()
+
+    def close(self):
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait()
+        self.proc.stdin.close()
+        self.proc.stdout.close()
+
+
+def chrome_theme(blob, previous, contrast):
+    p = dict(line.split("=", 1) for line in blob.splitlines())
+    if previous is None:
+        previous = {}
+    if not isinstance(previous, dict) or not isinstance(previous.get("fonts", {}), dict):
+        raise ValueError("existing desktop theme has an invalid shape")
+    # Preserve font choices, opacity and contrast; NeoBrix owns the colors.
+    theme = dict(previous)
+    theme.setdefault("fonts", {})
+    theme.setdefault("contrast", contrast)
+    theme.setdefault("opaqueWindows", True)
+    if any(value is not None and not isinstance(value, str)
+           for key, value in theme["fonts"].items() if key in ("ui", "code", "content")):
+        raise ValueError("existing desktop fonts must be names or unset")
+    if type(theme["contrast"]) is not int or not 0 <= theme["contrast"] <= 100:
+        raise ValueError("existing desktop contrast must be an integer from 0 to 100")
+    if not isinstance(theme["opaqueWindows"], bool):
+        raise ValueError("existing desktop opacity preference must be a boolean")
+    semantic = theme.get("semanticColors", {})
+    if not isinstance(semantic, dict):
+        raise ValueError("existing desktop semantic colors have an invalid shape")
+    theme.update({
+        "surface": "#" + p["BG"], "ink": "#" + p["FG"],
+        "accent": "#" + p["INK_PRIMARY"], "accentSource": "custom",
+        "semanticColors": semantic | {
+            "diffAdded": "#" + p["INK_SUCCESS"], "diffRemoved": "#" + p["INK_ERROR"],
+            "skill": "#" + p["INK_TERTIARY"],
+        },
+    })
+    return theme
+
+
+def configure():
+    root = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))).expanduser().resolve()
+    config_path = root / "config.toml"
+    # Fail before starting the backend if the user's document is malformed.
+    if config_path.exists():
+        tomllib.loads(config_path.read_text())
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    client = ConfigClient(root)
+    try:
+        client.request("initialize", {"clientInfo": {"name": "neobrix-theme", "version": "1"}})
+        client.send({"method": "initialized", "params": {}})
+        for attempt in range(3):
+            result = client.request("config/read", {"includeLayers": True})
+            desktop = result.get("config", {}).get("desktop") or {}
+            if not isinstance(desktop, dict):
+                raise ValueError("desktop configuration must be a table")
+            edits = []
+            for mode, key, contrast in (("DAWN", "appearanceLightChromeTheme", 45),
+                                        ("DUSK", "appearanceDarkChromeTheme", 60)):
+                value = chrome_theme(os.environ["NB_" + mode], desktop.get(key), contrast)
+                if value != desktop.get(key):
+                    edits.append({"keyPath": "desktop." + key, "value": value, "mergeStrategy": "replace"})
+            if desktop.get("appearanceTheme") != "system":
+                edits.append({"keyPath": "desktop.appearanceTheme", "value": "system", "mergeStrategy": "replace"})
+            if not edits:
+                return False
+            layer = next((layer for layer in result.get("layers") or []
+                          if layer.get("name", {}).get("type") == "user"
+                          and Path(layer["name"].get("file", "")).resolve() == config_path), None)
+            if layer and layer.get("disabledReason"):
+                raise ValueError("the desktop user configuration is disabled")
+            try:
+                client.request("config/batchWrite", {
+                    "edits": edits, "filePath": str(config_path),
+                    "expectedVersion": layer.get("version") if layer else None,
+                })
+                return True
+            except RpcError as error:
+                # Retry only a native version conflict, re-reading user font
+                # choices as well as the version before rebuilding the batch.
+                if attempt == 2 or "version" not in str(error.error.get("message", "")).lower():
+                    raise
+    finally:
+        client.close()
+
+
+try:
+    if configure():
+        print("Saved ChatGPT Dawn/Dusk palettes with System appearance. "
+              "Reopen an already-running app once to load new palettes; later mode switches are live.")
+except (OSError, ValueError, RuntimeError, TimeoutError, RpcError) as error:
+    print(f"neobrix-generate-chatgpt: {error}; configuration was not reset", file=sys.stderr)
+    raise SystemExit(1)
+PY
